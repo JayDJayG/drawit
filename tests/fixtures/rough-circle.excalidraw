@@ -1,0 +1,139 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "drawit-fixture-generator",
+  "elements": [
+    {
+      "id": "rough-circle-1",
+      "type": "freedraw",
+      "x": 226,
+      "y": 120,
+      "width": 98,
+      "height": 94.194,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a001",
+      "roundness": null,
+      "seed": 1001,
+      "version": 1,
+      "versionNonce": 2001,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -1.6538,
+          18.3688
+        ],
+        [
+          -10.6447,
+          35.3553
+        ],
+        [
+          -28.3966,
+          42.4985
+        ],
+        [
+          -46,
+          48
+        ],
+        [
+          -65.1342,
+          46.194
+        ],
+        [
+          -78.5269,
+          32.5269
+        ],
+        [
+          -90.3462,
+          18.3688
+        ],
+        [
+          -96,
+          0
+        ],
+        [
+          -88.4985,
+          -17.6034
+        ],
+        [
+          -79.9411,
+          -33.9411
+        ],
+        [
+          -65.1342,
+          -46.194
+        ],
+        [
+          -46,
+          -46
+        ],
+        [
+          -27.6312,
+          -44.3462
+        ],
+        [
+          -10.6447,
+          -35.3553
+        ],
+        [
+          -3.5015,
+          -17.6034
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "pressures": [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "simulatePressure": true,
+      "lastCommittedPoint": null
+    }
+  ],
+  "appState": {
+    "gridSize": null,
+    "gridStep": 5,
+    "viewBackgroundColor": "#ffffff",
+    "scrollX": 0,
+    "scrollY": 0,
+    "zoom": {
+      "value": 1
+    },
+    "selectedElementIds": {}
+  },
+  "files": {}
+}
