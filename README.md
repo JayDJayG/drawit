@@ -162,7 +162,7 @@ After the MVP:
 - **Phase 2: User testing,** starting with engineers, plus a pricing page or waitlist.
 - **Phase 3: Recognition bake-off and Interpret.** Small in-browser models and an on-demand vision LLM, offered as paid AI features.
 - **Phase 4: Interface lens.** Turn a wireframe sketch into an editable Fluent UI preview, with HTML and SVG export for Figma and Penpot.
-- **Phase 5: Art lens experiment.** Drawing guides, doodle hints, and an opt-in "ghost" reference that never replaces the artist's strokes.
+- **Phase 5: Art lens experiment.** Drawing guides, doodle hints, and an opt-in vector "ghost" guide, built from the artist's own strokes, that never replaces them.
 - **Phase 6: Learner and motor-assistance features.** A short explanation with each suggestion, stronger smoothing, and easier shape snapping.
 
 Recognition escalates from free geometry, to small in-browser models, to a vision LLM that runs only when the artist asks.

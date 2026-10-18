@@ -8,7 +8,7 @@ Drawit extends what people can draw without taking authorship away from them. Th
 
 | Persona | From | To |
 | --- | --- | --- |
-| Artist | rough sketch | better art from their own strokes: guides, refinement, an optional generative "ghost" reference |
+| Artist | rough sketch | better art from their own strokes: guides, refinement, an optional vector "ghost" guide |
 | Engineer | whiteboard-style sketch | a technical diagram: flowchart or architecture diagram, exported as Mermaid, SVG or draw.io; CAD-style constraints later |
 | UI/UX designer | wireframe sketch | an editable UI: Fluent UI web-components HTML, plus SVG to import into Figma or Penpot |
 | Learner | unsure, wobbly strokes | cleaner strokes, each with a short explanation of what changed |
@@ -169,7 +169,7 @@ No model called "JEV" could be found; it is probably a mix-up with V-JEPA.
 - **Deterministic guides first**, which is the user's stated priority: symmetry, perspective grids, proportion, construction shapes.
 - **Pressure-like strokes for free:** Excalidraw already renders `freedraw` elements with perfect-freehand.
 - **T1 QuickDraw hint:** for example, "looks like a cat", which then offers relevant guides and references.
-- **Opt-in generative ghost layer:** a sketch-conditioned image (ControlNet scribble or lineart via ComfyUI or a hosted API) shown as a translucent underlay that never replaces the artist's strokes.
+- **Opt-in vector ghost layer:** faint vector guides and corrected stroke paths, built from the artist's own strokes by T0 geometry or a T2 suggestion plan. They appear as a locked, translucent overlay that the artist can trace over or accept stroke by stroke. It never generates images and never replaces strokes automatically.
 - **Later:** SketchAgent-style stroke-by-stroke suggestions.
 
 ## 9. Phases and exit criteria
@@ -226,7 +226,7 @@ Phase 2 follows the demo directly. The Interpret spike can run alongside it beca
 - *Exit:* five sample wireframes become editable HTML with at least 80%† of components correct before any edits.
 
 **Phase 5: Art lens experiment (time-boxed)**
-- Guides, QuickDraw hints, and a ghost-layer spike.
+- Guides, QuickDraw hints, and a vector ghost-layer spike.
 - *Exit:* a go/no-go decision based on users' sense of ownership and their feedback.
 
 **Phase 6: Learner and motor-assistance features**
@@ -266,7 +266,7 @@ Excalidraw is MIT-licensed ("Copyright (c) 2020 Excalidraw"). That allows commer
 
 1. Draw a messy flowchart and press **Interpret**. A clean diagram preview appears with the labels read. Accept it and export Mermaid.
 2. Sketch a login screen and switch to the Interface lens. A Fluent UI preview appears. Tweak it, export HTML or SVG, and open it in Penpot or Figma.
-3. Sketch a cat. Symmetry and proportion guides appear with an optional ghost reference, and the artist refines their own strokes.
+3. Sketch a cat. Symmetry and proportion guides appear with an optional vector ghost guide, and the artist refines their own strokes.
 
 ## 12. Metrics
 
@@ -290,7 +290,7 @@ Excalidraw is MIT-licensed ("Copyright (c) 2020 Excalidraw"). That allows commer
 | Third-party requests and license drift | Self-host assets behind a strict CSP; re-run the license scan and regenerate `THIRD_PARTY_NOTICES.md` on every upgrade |
 | Bundle size | Lazy-load the editor and keep models in a Web Worker |
 | Crowded sketch-to-UI market | Differentiate on fidelity to the sketch, traceability and human control |
-| Authorship concerns (Art lens) | Ghost layer is opt-in and never applied automatically |
+| Authorship concerns (Art lens) | The ghost layer is opt-in and vector-only (never generated images), and is never applied automatically |
 
 ## 14. Sources
 
