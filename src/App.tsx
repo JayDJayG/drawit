@@ -69,6 +69,8 @@ const initialState: CanvasAdapterState = {
   statusKind: 'idle',
   hasPendingSuggestion: false,
   canSuggest: false,
+  canSuggestDiagram: false,
+  canExport: false,
   selectedStrokeCount: 0,
 };
 
@@ -76,6 +78,7 @@ export const App = () => {
   const styles = useStyles();
   const adapterRef = useRef<CanvasAdapter | undefined>(undefined);
   const [adapterState, setAdapterState] = useState(initialState);
+  const [mermaid, setMermaid] = useState({ code: '', unboundArrows: 0 });
 
   const handleReady = useCallback((adapter: CanvasAdapter) => {
     adapterRef.current = adapter;
@@ -94,6 +97,19 @@ export const App = () => {
   const handleDismiss = useCallback(() => {
     adapterRef.current?.dismissPreview();
     adapterRef.current?.focusCanvas();
+  }, []);
+  const handleSuggestDiagram = useCallback(() => {
+    adapterRef.current?.suggestDiagram();
+    adapterRef.current?.focusCanvas();
+  }, []);
+  const handleExportMermaid = useCallback(() => {
+    const output = adapterRef.current?.getMermaid();
+    if (output) {
+      setMermaid(output);
+    }
+  }, []);
+  const handleExportSvg = useCallback(() => {
+    void adapterRef.current?.exportSvg();
   }, []);
 
   return (
@@ -115,8 +131,13 @@ export const App = () => {
           <SuggestionPanel
             state={adapterState}
             onSuggest={handleSuggest}
+            onSuggestDiagram={handleSuggestDiagram}
             onApply={handleApply}
             onDismiss={handleDismiss}
+            onExportMermaid={handleExportMermaid}
+            onExportSvg={handleExportSvg}
+            mermaidCode={mermaid.code}
+            mermaidUnboundArrows={mermaid.unboundArrows}
           />
           <section className={styles.editor} aria-label="Excalidraw drawing workspace">
             <Suspense fallback={<div className={styles.loading}>Loading the drawing canvas…</div>}>

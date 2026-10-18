@@ -1,0 +1,129 @@
+{
+  "split": "dev",
+  "seed": 1123,
+  "nodes": [
+    {
+      "id": "dev-18-node-0",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-18-node-0-stroke-1"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "dev-18-node-1",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-18-node-1-stroke-1"
+      ],
+      "label": "Ready?"
+    },
+    {
+      "id": "dev-18-node-2",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-18-node-2-stroke-1",
+        "dev-18-node-2-stroke-2"
+      ],
+      "label": "Step 2"
+    },
+    {
+      "id": "dev-18-node-3",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-18-node-3-stroke-1"
+      ],
+      "label": "Step 3"
+    },
+    {
+      "id": "dev-18-node-4",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-18-node-4-stroke-1"
+      ],
+      "label": "Ready?"
+    },
+    {
+      "id": "dev-18-node-5",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-18-node-5-stroke-1",
+        "dev-18-node-5-stroke-2"
+      ],
+      "label": "Step 5"
+    },
+    {
+      "id": "dev-18-node-6",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-18-node-6-stroke-1"
+      ],
+      "label": "Step 6"
+    },
+    {
+      "id": "dev-18-node-7",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-18-node-7-stroke-1"
+      ],
+      "label": "End"
+    }
+  ],
+  "edges": [
+    {
+      "from": "dev-18-node-0",
+      "to": "dev-18-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "dev-18-node-1",
+      "to": "dev-18-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-18-node-2",
+      "to": "dev-18-node-3",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "dev-18-node-3",
+      "to": "dev-18-node-4",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "dev-18-node-4",
+      "to": "dev-18-node-5",
+      "direction": "forward",
+      "label": "step 4"
+    },
+    {
+      "from": "dev-18-node-5",
+      "to": "dev-18-node-6",
+      "direction": "forward",
+      "label": "step 5"
+    },
+    {
+      "from": "dev-18-node-6",
+      "to": "dev-18-node-7",
+      "direction": "forward",
+      "label": "step 6"
+    },
+    {
+      "from": "dev-18-node-4",
+      "to": "dev-18-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-18-node-7",
+      "to": "dev-18-node-1",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": []
+}

@@ -22,15 +22,40 @@ export const removePreviewElements = <TElement extends CanvasElement>(
 export const markAsPreview = <TElement extends CanvasElement>(
   element: TElement,
   sourceIds: readonly string[],
+  metadata?: {
+    planItemId?: string;
+    review?: 'accepted' | 'rejected';
+  },
 ): TElement => {
+  const customData = {
+    ...element.customData,
+    drawit: 'preview',
+    sourceIds: [...sourceIds],
+    ...(metadata?.planItemId ? { planItemId: metadata.planItemId } : {}),
+    ...(metadata?.review ? { review: metadata.review } : {}),
+  };
   return {
     ...element,
     strokeStyle: 'dashed',
     locked: true,
+    opacity: metadata?.review === 'rejected' ? 25 : element.opacity,
+    customData,
+  };
+};
+
+export const setPreviewReview = <TElement extends CanvasElement>(
+  element: TElement,
+  review: 'accepted' | 'rejected',
+): TElement => {
+  if (!isPreviewElement(element)) {
+    return element;
+  }
+  return {
+    ...element,
+    opacity: review === 'rejected' ? 25 : 100,
     customData: {
       ...element.customData,
-      drawit: 'preview',
-      sourceIds: [...sourceIds],
+      review,
     },
   };
 };

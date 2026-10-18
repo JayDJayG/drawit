@@ -1,0 +1,89 @@
+{
+  "split": "dev",
+  "seed": 1115,
+  "nodes": [
+    {
+      "id": "dev-10-node-0",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-10-node-0-stroke-1",
+        "dev-10-node-0-stroke-2",
+        "dev-10-node-0-stroke-3"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "dev-10-node-1",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-10-node-1-stroke-1"
+      ],
+      "label": "Step 1"
+    },
+    {
+      "id": "dev-10-node-2",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-10-node-2-stroke-1"
+      ],
+      "label": "Ready?"
+    },
+    {
+      "id": "dev-10-node-3",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-10-node-3-stroke-1",
+        "dev-10-node-3-stroke-2",
+        "dev-10-node-3-stroke-3"
+      ],
+      "label": "Step 3"
+    },
+    {
+      "id": "dev-10-node-4",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-10-node-4-stroke-1"
+      ],
+      "label": "End"
+    }
+  ],
+  "edges": [
+    {
+      "from": "dev-10-node-0",
+      "to": "dev-10-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "dev-10-node-1",
+      "to": "dev-10-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-10-node-3",
+      "to": "dev-10-node-2",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "dev-10-node-3",
+      "to": "dev-10-node-4",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "dev-10-node-2",
+      "to": "dev-10-node-4",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-10-node-1",
+      "to": "dev-10-node-4",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": []
+}

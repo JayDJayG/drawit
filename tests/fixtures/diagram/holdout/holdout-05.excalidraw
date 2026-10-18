@@ -1,0 +1,319 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "drawit-phase1-diagram-fixture-generator",
+  "elements": [
+    {
+      "id": "holdout-4-negative-1",
+      "type": "freedraw",
+      "x": 130,
+      "y": 108.056,
+      "width": 48,
+      "height": 23.847,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "d0001",
+      "roundness": null,
+      "seed": 5001,
+      "version": 1,
+      "versionNonce": 7001,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": null,
+      "points": [
+        [
+          0,
+          12.473
+        ],
+        [
+          4,
+          19.644
+        ],
+        [
+          8,
+          23.746
+        ],
+        [
+          12,
+          20.38
+        ],
+        [
+          16,
+          12.03
+        ],
+        [
+          20,
+          3.426
+        ],
+        [
+          24,
+          0
+        ],
+        [
+          28,
+          3.962
+        ],
+        [
+          32,
+          14.044
+        ],
+        [
+          36,
+          21.654
+        ],
+        [
+          40,
+          23.847
+        ],
+        [
+          44,
+          18.498
+        ],
+        [
+          48,
+          10.769
+        ]
+      ],
+      "pressures": [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "simulatePressure": true,
+      "lastCommittedPoint": null
+    },
+    {
+      "id": "holdout-4-negative-2",
+      "type": "freedraw",
+      "x": 205,
+      "y": 108.882,
+      "width": 48,
+      "height": 23.19,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "d0002",
+      "roundness": null,
+      "seed": 5002,
+      "version": 1,
+      "versionNonce": 7002,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": null,
+      "points": [
+        [
+          0,
+          20.681
+        ],
+        [
+          4,
+          23.19
+        ],
+        [
+          8,
+          17.995
+        ],
+        [
+          12,
+          7.099
+        ],
+        [
+          16,
+          1.049
+        ],
+        [
+          20,
+          0
+        ],
+        [
+          24,
+          6.335
+        ],
+        [
+          28,
+          14.218
+        ],
+        [
+          32,
+          21.973
+        ],
+        [
+          36,
+          21.804
+        ],
+        [
+          40,
+          15.243
+        ],
+        [
+          44,
+          7.322
+        ],
+        [
+          48,
+          0.072
+        ]
+      ],
+      "pressures": [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "simulatePressure": true,
+      "lastCommittedPoint": null
+    },
+    {
+      "id": "holdout-4-negative-3",
+      "type": "freedraw",
+      "x": 280,
+      "y": 107.868,
+      "width": 48,
+      "height": 24.694,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "d0003",
+      "roundness": null,
+      "seed": 5003,
+      "version": 1,
+      "versionNonce": 7003,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "customData": null,
+      "points": [
+        [
+          0,
+          22.556
+        ],
+        [
+          4,
+          15.281
+        ],
+        [
+          8,
+          6.531
+        ],
+        [
+          12,
+          0
+        ],
+        [
+          16,
+          2.306
+        ],
+        [
+          20,
+          8.29
+        ],
+        [
+          24,
+          17.795
+        ],
+        [
+          28,
+          24.694
+        ],
+        [
+          32,
+          22.755
+        ],
+        [
+          36,
+          14.471
+        ],
+        [
+          40,
+          6.322
+        ],
+        [
+          44,
+          0.707
+        ],
+        [
+          48,
+          2.13
+        ]
+      ],
+      "pressures": [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "simulatePressure": true,
+      "lastCommittedPoint": null
+    }
+  ],
+  "appState": {
+    "gridSize": null,
+    "gridStep": 5,
+    "viewBackgroundColor": "#ffffff",
+    "scrollX": 0,
+    "scrollY": 0,
+    "zoom": {
+      "value": 1
+    },
+    "selectedElementIds": {}
+  },
+  "files": {}
+}

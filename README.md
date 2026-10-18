@@ -31,10 +31,13 @@ improving freehand sketches while preserving the original mark. It includes:
 - Excalidraw's mouse, pen, and touch drawing tools, with freedraw active by default;
 - native Excalidraw selection for choosing several strokes;
 - non-destructive, dashed suggestions that are explicitly applied or dismissed;
-- one-step undo and redo for an applied improvement; and
+- a geometry-only Diagram lens for turning sketched flowcharts into native shapes,
+  bound arrows, and typed labels;
+- one-step undo and redo for an applied improvement;
+- Mermaid and SVG export from the live native diagram; and
 - self-hosted Excalidraw fonts and a production CSP with no third-party requests.
 
-This is an early-stage experiment. The current improvement engine is deterministic rather than a trained recognition model, and it reports when a stroke is already clean. Flowchart-specific assistance and model-based suggestions are planned for later iterations.
+This is an early-stage experiment. The current improvement engine and Diagram lens are deterministic rather than trained recognition models, and the engine reports when a stroke is already clean. Model-based suggestions are planned for later iterations.
 
 ## How it works
 
@@ -44,6 +47,29 @@ This is an early-stage experiment. The current improvement engine is determinist
 4. The deterministic geometry engine simplifies noisy points, preserves meaningful corners, straightens near-linear strokes, and fits rough circles.
 5. The suggestion appears as a locked, dashed overlay. It is not part of undo history or saved/exported output.
 6. The artist presses `Enter` to apply or `Esc` to dismiss. Applying replaces the sources in one undoable change; `Ctrl+Z` restores the original strokes and redo reapplies the change.
+
+### Diagram lens
+
+Draw a rough flowchart with freehand strokes, then add labels with Excalidraw's
+text tool. Choose **Diagram** or press `Shift+Y`. Drawit
+recognizes rectangles, rounded rectangles, diamonds, ellipses, connectors, and
+typed labels. Connector endpoints are bound to recognized or existing native
+shapes.
+
+The diagram is shown as a single dashed preview before it changes the scene.
+Click any preview shape, arrow, or bound label to reject it; click it again to
+restore it. Rejected items remain visible at low opacity and their source
+strokes stay untouched. Press `Enter` to apply the accepted items in one
+undoable step, or `Esc` to dismiss the preview. While a preview is pending,
+exports wait until it is applied or dismissed.
+
+Labels are currently **typed text only**. Handwritten labels are intentionally
+left as drawing and will be addressed by a later recognition tier.
+
+After applying a diagram, **Export Mermaid** opens a reviewable Mermaid
+definition with Copy and Download actions. **Export SVG** downloads the live
+native Excalidraw output. Unbound arrows are omitted from Mermaid because their
+endpoints cannot be represented as diagram edges.
 
 Production builds keep Excalidraw's font-subsetting worker in its own
 same-origin chunks (the build fails if that isolation breaks), so SVG export
@@ -55,6 +81,7 @@ back to main-thread subsetting if its optimized worker cannot load.
 | Action | Shortcut |
 | --- | --- |
 | Suggest the selection or last freedraw stroke | `Y` |
+| Suggest a diagram from strokes and typed labels | `Shift+Y` |
 | Apply a pending suggestion | `Enter` |
 | Dismiss a pending suggestion | `Esc` |
 
@@ -91,6 +118,18 @@ npm run preview
 
 `npm run build` creates the deployable site in `dist/`. `npm run preview` serves that production build locally.
 
+Regenerate the deterministic Phase 1 fixtures with:
+
+```bash
+npm run fixtures
+```
+
+The diagram accuracy harness runs as part of the test suite. To run it alone:
+
+```bash
+npx vitest run tests/diagram-accuracy.test.ts
+```
+
 Regenerate the package and font notices with:
 
 ```bash
@@ -102,7 +141,12 @@ Production builds copy the non-Liberation fonts from `node_modules` into
 `dist/fonts/`, and the committed `THIRD_PARTY_NOTICES.md` is regenerated with
 `npm run notices` and published at `dist/THIRD_PARTY_NOTICES.md`.
 
-The test suite uses Vitest and includes real version-2 `.excalidraw` fixtures.
+The test suite uses Vitest and includes real version-2 `.excalidraw` fixtures,
+including seeded Diagram dev and holdout fixtures. The Diagram lens and the
+future Interpret tier share a versioned suggestion-plan format. Phase 1 includes
+an offline `src/perception/interpret/` provider seam, prompt builder, strict
+response validator, and mock provider; it makes no network requests and has no
+Interpret UI yet.
 
 ## Roadmap
 

@@ -1,0 +1,162 @@
+{
+  "split": "dev",
+  "seed": 1113,
+  "nodes": [
+    {
+      "id": "dev-8-node-0",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-8-node-0-stroke-1"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "dev-8-node-1",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-8-node-1-stroke-1",
+        "dev-8-node-1-stroke-2",
+        "dev-8-node-1-stroke-3",
+        "dev-8-node-1-stroke-4"
+      ],
+      "label": "Step 1"
+    },
+    {
+      "id": "dev-8-node-2",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-8-node-2-stroke-1"
+      ],
+      "label": "Step 2"
+    },
+    {
+      "id": "dev-8-node-3",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-8-node-3-stroke-1"
+      ],
+      "label": "Ready?"
+    },
+    {
+      "id": "dev-8-node-4",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-8-node-4-stroke-1",
+        "dev-8-node-4-stroke-2",
+        "dev-8-node-4-stroke-3",
+        "dev-8-node-4-stroke-4"
+      ],
+      "label": "Step 4"
+    },
+    {
+      "id": "dev-8-node-5",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-8-node-5-stroke-1"
+      ],
+      "label": "Step 5"
+    },
+    {
+      "id": "dev-8-node-6",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-8-node-6-stroke-1"
+      ],
+      "label": "Ready?"
+    },
+    {
+      "id": "dev-8-node-7",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-8-node-7-stroke-1",
+        "dev-8-node-7-stroke-2",
+        "dev-8-node-7-stroke-3",
+        "dev-8-node-7-stroke-4"
+      ],
+      "label": "End"
+    },
+    {
+      "id": "dev-8-container",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-8-container-stroke"
+      ],
+      "label": "Main lane"
+    }
+  ],
+  "edges": [
+    {
+      "from": "dev-8-node-0",
+      "to": "dev-8-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "dev-8-node-1",
+      "to": "dev-8-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-8-node-2",
+      "to": "dev-8-node-3",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "dev-8-node-3",
+      "to": "dev-8-node-4",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "dev-8-node-4",
+      "to": "dev-8-node-5",
+      "direction": "forward",
+      "label": "step 4"
+    },
+    {
+      "from": "dev-8-node-5",
+      "to": "dev-8-node-6",
+      "direction": "forward",
+      "label": "step 5"
+    },
+    {
+      "from": "dev-8-node-6",
+      "to": "dev-8-node-7",
+      "direction": "forward",
+      "label": "step 6"
+    },
+    {
+      "from": "dev-8-node-4",
+      "to": "dev-8-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-8-node-7",
+      "to": "dev-8-node-1",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": [
+    {
+      "sourceIds": [
+        "dev-8-container-stroke"
+      ],
+      "children": [
+        [
+          "dev-8-node-0-stroke-1"
+        ],
+        [
+          "dev-8-node-1-stroke-1",
+          "dev-8-node-1-stroke-2",
+          "dev-8-node-1-stroke-3",
+          "dev-8-node-1-stroke-4"
+        ]
+      ],
+      "title": "Main lane"
+    }
+  ]
+}

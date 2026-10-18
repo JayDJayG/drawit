@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import './setup-assets';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import type {
@@ -11,6 +11,14 @@ import type { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/ty
 import '@excalidraw/excalidraw/index.css';
 import { CanvasAdapter } from './CanvasAdapter';
 import type { CanvasAdapterState } from './types';
+
+declare global {
+  interface Window {
+    __drawitDebug?: {
+      getElements: () => readonly OrderedExcalidrawElement[];
+    };
+  }
+}
 
 export type ExcalidrawEditorProps = {
   onReady?: (adapter: CanvasAdapter) => void;
@@ -41,6 +49,11 @@ export const ExcalidrawEditor = ({
       window.setTimeout(() => stateListenerRef.current?.(state), 0);
     });
     adapterRef.current = adapter;
+    if (import.meta.env.DEV) {
+      window.__drawitDebug = {
+        getElements: () => adapter.getCurrentElements(),
+      };
+    }
     onReady?.(adapter);
     adapter.handleChange(
       api.getSceneElementsIncludingDeleted() as readonly OrderedExcalidrawElement[],
@@ -63,12 +76,16 @@ export const ExcalidrawEditor = ({
   const handleContextMenuCapture = useCallback(() => {
     adapterRef.current?.handleContextMenuCapture();
   }, []);
+  const handlePointerDownCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    adapterRef.current?.handlePointerDownCapture(event.nativeEvent);
+  }, []);
 
   return (
     <div
       ref={shellRef}
       className="excalidraw-editor-shell"
       onKeyDownCapture={handleKeyDownCapture}
+      onPointerDownCapture={handlePointerDownCapture}
       onContextMenuCapture={handleContextMenuCapture}
     >
       <Excalidraw

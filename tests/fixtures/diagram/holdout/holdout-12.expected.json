@@ -1,0 +1,103 @@
+{
+  "split": "holdout",
+  "seed": 9111,
+  "nodes": [
+    {
+      "id": "holdout-6-node-0",
+      "kind": "rectangle",
+      "sourceIds": [
+        "holdout-6-node-0-stroke-1"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "holdout-6-node-1",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "holdout-6-node-1-stroke-1"
+      ],
+      "label": "Step 1"
+    },
+    {
+      "id": "holdout-6-node-2",
+      "kind": "diamond",
+      "sourceIds": [
+        "holdout-6-node-2-stroke-1",
+        "holdout-6-node-2-stroke-2",
+        "holdout-6-node-2-stroke-3"
+      ],
+      "label": "Step 2"
+    },
+    {
+      "id": "holdout-6-node-3",
+      "kind": "rectangle",
+      "sourceIds": [
+        "holdout-6-node-3-stroke-1"
+      ],
+      "label": "Step 3"
+    },
+    {
+      "id": "holdout-6-node-4",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "holdout-6-node-4-stroke-1"
+      ],
+      "label": "Step 4"
+    },
+    {
+      "id": "holdout-6-node-5",
+      "kind": "diamond",
+      "sourceIds": [
+        "holdout-6-node-5-stroke-1",
+        "holdout-6-node-5-stroke-2",
+        "holdout-6-node-5-stroke-3"
+      ],
+      "label": "End"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holdout-6-node-0",
+      "to": "holdout-6-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "holdout-6-node-1",
+      "to": "holdout-6-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "holdout-6-node-3",
+      "to": "holdout-6-node-2",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "holdout-6-node-3",
+      "to": "holdout-6-node-4",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "holdout-6-node-4",
+      "to": "holdout-6-node-5",
+      "direction": "forward",
+      "label": "step 4"
+    },
+    {
+      "from": "holdout-6-node-4",
+      "to": "holdout-6-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "holdout-6-node-5",
+      "to": "holdout-6-node-1",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": []
+}

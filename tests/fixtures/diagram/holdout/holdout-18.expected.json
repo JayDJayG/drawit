@@ -1,0 +1,140 @@
+{
+  "split": "holdout",
+  "seed": 9117,
+  "nodes": [
+    {
+      "id": "holdout-12-node-0",
+      "kind": "rectangle",
+      "sourceIds": [
+        "holdout-12-node-0-stroke-1"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "holdout-12-node-1",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "holdout-12-node-1-stroke-1"
+      ],
+      "label": "Step 1"
+    },
+    {
+      "id": "holdout-12-node-2",
+      "kind": "diamond",
+      "sourceIds": [
+        "holdout-12-node-2-stroke-1",
+        "holdout-12-node-2-stroke-2",
+        "holdout-12-node-2-stroke-3"
+      ],
+      "label": "Step 2"
+    },
+    {
+      "id": "holdout-12-node-3",
+      "kind": "rectangle",
+      "sourceIds": [
+        "holdout-12-node-3-stroke-1"
+      ],
+      "label": "Step 3"
+    },
+    {
+      "id": "holdout-12-node-4",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "holdout-12-node-4-stroke-1"
+      ],
+      "label": "Step 4"
+    },
+    {
+      "id": "holdout-12-node-5",
+      "kind": "diamond",
+      "sourceIds": [
+        "holdout-12-node-5-stroke-1",
+        "holdout-12-node-5-stroke-2",
+        "holdout-12-node-5-stroke-3"
+      ],
+      "label": "Step 5"
+    },
+    {
+      "id": "holdout-12-node-6",
+      "kind": "rectangle",
+      "sourceIds": [
+        "holdout-12-node-6-stroke-1"
+      ],
+      "label": "End"
+    },
+    {
+      "id": "holdout-12-container",
+      "kind": "rectangle",
+      "sourceIds": [
+        "holdout-12-container-stroke"
+      ],
+      "label": "Main lane"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holdout-12-node-0",
+      "to": "holdout-12-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "holdout-12-node-1",
+      "to": "holdout-12-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "holdout-12-node-2",
+      "to": "holdout-12-node-3",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "holdout-12-node-4",
+      "to": "holdout-12-node-3",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "holdout-12-node-4",
+      "to": "holdout-12-node-5",
+      "direction": "forward",
+      "label": "step 4"
+    },
+    {
+      "from": "holdout-12-node-5",
+      "to": "holdout-12-node-6",
+      "direction": "forward",
+      "label": "step 5"
+    },
+    {
+      "from": "holdout-12-node-4",
+      "to": "holdout-12-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "holdout-12-node-1",
+      "to": "holdout-12-node-6",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": [
+    {
+      "sourceIds": [
+        "holdout-12-container-stroke"
+      ],
+      "children": [
+        [
+          "holdout-12-node-0-stroke-1"
+        ],
+        [
+          "holdout-12-node-1-stroke-1"
+        ]
+      ],
+      "title": "Main lane"
+    }
+  ]
+}

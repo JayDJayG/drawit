@@ -1,0 +1,87 @@
+{
+  "split": "dev",
+  "seed": 1110,
+  "nodes": [
+    {
+      "id": "dev-5-node-0",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-5-node-0-stroke-1",
+        "dev-5-node-0-stroke-2"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "dev-5-node-1",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-5-node-1-stroke-1"
+      ],
+      "label": "Step 1"
+    },
+    {
+      "id": "dev-5-node-2",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "dev-5-node-2-stroke-1"
+      ],
+      "label": "Step 2"
+    },
+    {
+      "id": "dev-5-node-3",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-5-node-3-stroke-1",
+        "dev-5-node-3-stroke-2"
+      ],
+      "label": "Step 3"
+    },
+    {
+      "id": "dev-5-node-4",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-5-node-4-stroke-1"
+      ],
+      "label": "End"
+    }
+  ],
+  "edges": [
+    {
+      "from": "dev-5-node-0",
+      "to": "dev-5-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "dev-5-node-1",
+      "to": "dev-5-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-5-node-3",
+      "to": "dev-5-node-2",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "dev-5-node-3",
+      "to": "dev-5-node-4",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "dev-5-node-4",
+      "to": "dev-5-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-5-node-1",
+      "to": "dev-5-node-4",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": []
+}

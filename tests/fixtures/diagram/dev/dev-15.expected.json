@@ -1,0 +1,147 @@
+{
+  "split": "dev",
+  "seed": 1114,
+  "nodes": [
+    {
+      "id": "dev-9-node-0",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "dev-9-node-0-stroke-1"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "dev-9-node-1",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-9-node-1-stroke-1",
+        "dev-9-node-1-stroke-2",
+        "dev-9-node-1-stroke-3"
+      ],
+      "label": "Step 1"
+    },
+    {
+      "id": "dev-9-node-2",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-9-node-2-stroke-1"
+      ],
+      "label": "Step 2"
+    },
+    {
+      "id": "dev-9-node-3",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "dev-9-node-3-stroke-1"
+      ],
+      "label": "Step 3"
+    },
+    {
+      "id": "dev-9-node-4",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-9-node-4-stroke-1",
+        "dev-9-node-4-stroke-2",
+        "dev-9-node-4-stroke-3"
+      ],
+      "label": "Step 4"
+    },
+    {
+      "id": "dev-9-node-5",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-9-node-5-stroke-1"
+      ],
+      "label": "Step 5"
+    },
+    {
+      "id": "dev-9-node-6",
+      "kind": "roundedRectangle",
+      "sourceIds": [
+        "dev-9-node-6-stroke-1"
+      ],
+      "label": "Step 6"
+    },
+    {
+      "id": "dev-9-node-7",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-9-node-7-stroke-1",
+        "dev-9-node-7-stroke-2",
+        "dev-9-node-7-stroke-3"
+      ],
+      "label": "Step 7"
+    },
+    {
+      "id": "dev-9-node-8",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-9-node-8-stroke-1"
+      ],
+      "label": "End"
+    }
+  ],
+  "edges": [
+    {
+      "from": "dev-9-node-0",
+      "to": "dev-9-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "dev-9-node-1",
+      "to": "dev-9-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-9-node-2",
+      "to": "dev-9-node-3",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "dev-9-node-3",
+      "to": "dev-9-node-4",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "dev-9-node-4",
+      "to": "dev-9-node-5",
+      "direction": "forward",
+      "label": "step 4"
+    },
+    {
+      "from": "dev-9-node-5",
+      "to": "dev-9-node-6",
+      "direction": "forward",
+      "label": "step 5"
+    },
+    {
+      "from": "dev-9-node-7",
+      "to": "dev-9-node-6",
+      "direction": "forward",
+      "label": "step 6"
+    },
+    {
+      "from": "dev-9-node-8",
+      "to": "dev-9-node-7",
+      "direction": "backward",
+      "label": "step 7"
+    },
+    {
+      "from": "dev-9-node-2",
+      "to": "dev-9-node-4",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-9-node-8",
+      "to": "dev-9-node-1",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": []
+}

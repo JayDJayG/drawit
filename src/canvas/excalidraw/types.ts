@@ -5,8 +5,11 @@ export type { Point };
 export type CanvasElementType =
   | 'freedraw'
   | 'line'
+  | 'arrow'
+  | 'diamond'
   | 'ellipse'
   | 'rectangle'
+  | 'text'
   | 'other';
 
 export type CanvasElement = {
@@ -91,5 +94,9 @@ export type CanvasAdapterState = {
   statusKind: SuggestionStatus;
   hasPendingSuggestion: boolean;
   canSuggest: boolean;
+  canSuggestDiagram: boolean;
+  canExport: boolean;
+  mermaidCode?: string;
+  mermaidUnboundArrows?: number;
   selectedStrokeCount: number;
 };

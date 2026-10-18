@@ -9,6 +9,10 @@ import {
   strokesToDrafts,
 } from './scene-logic';
 import type {
+  SuggestionPlan,
+  StrokeSuggestionItem,
+} from '../../core/suggestions';
+import type {
   DrawitStroke,
   NativeElementDraft,
 } from './types';
@@ -21,6 +25,7 @@ export type SuggestionOperation =
       mode: Exclude<ImprovementMode, 'unchanged'>;
       removedPoints: number;
       target: 'selection' | 'last';
+      plan: SuggestionPlan;
     }
   | {
       kind: 'group';
@@ -29,6 +34,7 @@ export type SuggestionOperation =
       mode: 'rectangle';
       removedPoints: number;
       target: 'selection' | 'last';
+      plan: SuggestionPlan;
     };
 
 export type SuggestionTarget = 'selection' | 'last' | 'none';
@@ -85,19 +91,43 @@ export class StrokeSuggestionEngine {
       return { kind: 'already-clean' };
     }
 
+    const drafts = strokesToDrafts(
+      [stroke],
+      result.mode,
+      result.points,
+    );
+    const draft = drafts[0];
+    const planItem: StrokeSuggestionItem = {
+      id: `stroke-${stroke.sourceId}`,
+      kind: 'stroke',
+      primitive: result.mode === 'straightened'
+        ? 'line'
+        : result.mode === 'circled'
+          ? 'ellipse'
+          : result.mode === 'smoothed'
+            ? 'curve'
+            : 'freedraw',
+      sourceIds: [stroke.sourceId],
+      points: draft?.points,
+      bounds: draft?.bounds,
+    };
+
     return {
       kind: 'ready',
       operation: {
         kind: 'stroke',
         sourceIds: [stroke.sourceId],
-        drafts: strokesToDrafts(
-          [stroke],
-          result.mode,
-          result.points,
-        ),
+        drafts,
         mode: result.mode,
         removedPoints: result.removedPoints,
         target,
+        plan: {
+          version: 1,
+          lens: 'stroke',
+          tier: 't0',
+          items: [planItem],
+          unresolved: [],
+        },
       },
     };
   }
@@ -120,15 +150,35 @@ export class StrokeSuggestionEngine {
       return replacement.points;
     });
 
+    const drafts = rectangleDraft(strokes, replacementPoints);
+    const draft = drafts[0];
+    const planItem = {
+      id: `shape-${strokes.map((stroke) => stroke.sourceId).join('-')}`,
+      kind: 'shape' as const,
+      shape: 'rectangle' as const,
+      x: draft?.bounds?.x ?? 0,
+      y: draft?.bounds?.y ?? 0,
+      width: draft?.bounds?.width ?? 1,
+      height: draft?.bounds?.height ?? 1,
+      sourceIds: strokes.map((stroke) => stroke.sourceId),
+    };
+
     return {
       kind: 'ready',
       operation: {
         kind: 'group',
         sourceIds: strokes.map((stroke) => stroke.sourceId),
-        drafts: rectangleDraft(strokes, replacementPoints),
+        drafts,
         mode: 'rectangle',
         removedPoints: result.removedPoints,
         target,
+        plan: {
+          version: 1,
+          lens: 'stroke',
+          tier: 't0',
+          items: [planItem],
+          unresolved: [],
+        },
       },
     };
   }

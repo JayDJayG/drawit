@@ -1,0 +1,109 @@
+{
+  "split": "dev",
+  "seed": 1105,
+  "nodes": [
+    {
+      "id": "dev-0-node-0",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-0-node-0-stroke-1"
+      ],
+      "label": "Start"
+    },
+    {
+      "id": "dev-0-node-1",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-0-node-1-stroke-1"
+      ],
+      "label": "Ready?"
+    },
+    {
+      "id": "dev-0-node-2",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-0-node-2-stroke-1",
+        "dev-0-node-2-stroke-2"
+      ],
+      "label": "Step 2"
+    },
+    {
+      "id": "dev-0-node-3",
+      "kind": "ellipse",
+      "sourceIds": [
+        "dev-0-node-3-stroke-1"
+      ],
+      "label": "Step 3"
+    },
+    {
+      "id": "dev-0-node-4",
+      "kind": "diamond",
+      "sourceIds": [
+        "dev-0-node-4-stroke-1"
+      ],
+      "label": "End"
+    },
+    {
+      "id": "dev-0-container",
+      "kind": "rectangle",
+      "sourceIds": [
+        "dev-0-container-stroke"
+      ],
+      "label": "Main lane"
+    }
+  ],
+  "edges": [
+    {
+      "from": "dev-0-node-0",
+      "to": "dev-0-node-1",
+      "direction": "forward",
+      "label": "yes"
+    },
+    {
+      "from": "dev-0-node-1",
+      "to": "dev-0-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-0-node-3",
+      "to": "dev-0-node-2",
+      "direction": "forward",
+      "label": "step 2"
+    },
+    {
+      "from": "dev-0-node-3",
+      "to": "dev-0-node-4",
+      "direction": "backward",
+      "label": "step 3"
+    },
+    {
+      "from": "dev-0-node-4",
+      "to": "dev-0-node-2",
+      "direction": "forward",
+      "label": "no"
+    },
+    {
+      "from": "dev-0-node-4",
+      "to": "dev-0-node-1",
+      "direction": "backward",
+      "label": "back"
+    }
+  ],
+  "containers": [
+    {
+      "sourceIds": [
+        "dev-0-container-stroke"
+      ],
+      "children": [
+        [
+          "dev-0-node-0-stroke-1"
+        ],
+        [
+          "dev-0-node-1-stroke-1"
+        ]
+      ],
+      "title": "Main lane"
+    }
+  ]
+}

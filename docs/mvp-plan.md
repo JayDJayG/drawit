@@ -1,6 +1,6 @@
 # Drawit MVP plan
 
-_Status: agreed on 2026-10-17, then re-scoped the same day after an assumption check. §3 records the decisions and §9 defines the two-week MVP._
+_Status: agreed on 2026-10-17, then re-scoped the same day after an assumption check. Updated that evening to design the Interpret (vision-LLM) seam into Phase 1. §3 records the decisions and §9 defines the two-week MVP._
 
 ## 1. Goal
 
@@ -29,7 +29,7 @@ The two-week MVP serves engineers only. Its job is to validate demand with real 
 | --- | --- | --- |
 | 1 | Recognition | The perception ladder (§6): geometry first, then small local models, then a vision LLM on demand. The JEPA research track is parked (§7). |
 | 2 | Lens order | Diagram first. Interface is the headline demo. Art is a time-boxed experiment. |
-| 3 | Vision-LLM provider | Interpret (T2) stays out of the MVP and the first user tests. When it returns, start with a mock adapter and choose the first real provider from the bake-off results (Phase 3). |
+| 3 | Vision-LLM provider | Phase 1 builds the Interpret (T2) seam: a suggestion plan shared with T0, a provider interface and a mock (§6). The first real adapter speaks the OpenAI-compatible Chat Completions API and targets DeepSeek (`deepseek-flash` accepts images). It is tried in a local-only spike, keeps its key on a server, and stays out of the hosted MVP and the first user tests. The bake-off (Phase 3) can change the default provider. T2 returns actionable suggestions about the user's own strokes, never generated images. |
 | 4 | Canvas foundation | Excalidraw (`@excalidraw/excalidraw`, MIT), pinned to an exact version and isolated behind an adapter (§5). |
 | 5 | Plan location | This file, linked from the README roadmap. |
 | 6 | MVP purpose | Validate demand with real users. |
@@ -60,6 +60,7 @@ Excalidraw canvas: freedraw ink, selection, undo, JSON/PNG/SVG export
 | --- | --- |
 | `src/core/geometry` | Stroke cleanup and fitting: today's `drawing-improvement-engine.ts`, ported unchanged |
 | `src/core/structure` | Scene graph |
+| `src/core/suggestions` | The suggestion plan that every tier and lens emits, and that the review step previews and applies |
 | `src/perception` | T0 recognizers, T1 Web Worker, T2 client |
 | `src/lenses` | Diagram, Interface and Art lenses |
 | `src/canvas/excalidraw` | The only module that imports Excalidraw |
@@ -99,9 +100,23 @@ Yes, but only for meaning, and only when the user asks. Precision comes from geo
 | --- | --- | --- | --- | --- |
 | **T0** Geometry + $Q | Deterministic fitting (we already have line, curve, circle, rectangle) plus the $Q point-cloud recognizer with user-defined templates | Free, sub-millisecond, offline | Shapes, arrows, diamonds, connectors, a user's personal symbols | Meaning, handwriting |
 | **T1** Small local models | transformers.js in a Web Worker: QuickDraw doodle classifier, DINOv2-small embeddings for few-shot k-NN, optional SigLIP zero-shot labels | Free after a one-time 6–95 MB download; millisecond-scale (to be measured) | "What object is this?", UI component type, personal-symbol lookup | Handwriting, layout intent, code |
-| **T2** Vision LLM on demand | Set-of-Mark image plus scene graph in; zod-validated JSON out that references stroke IDs only | Seconds, a few cents per request | Labels and handwriting, element roles, layout intent, generating Mermaid or HTML | Real-time feedback |
+| **T2** Vision LLM on demand | Simplified strokes, typed text and the T0 suggestion plan in, plus a Set-of-Mark image for models that accept images; a schema-validated suggestion plan out that references stroke IDs only | Seconds, a few cents per request | Labels and handwriting, element roles, layout intent, composition feedback, generating Mermaid or HTML | Real-time feedback, generating images |
 
 Rule: T0 always runs. T1 gives cheap, continuous hints. T2 runs only when the user presses Interpret, which keeps cost and latency predictable. The two-week MVP ships T0 only (decision 11).
+
+### Interpret seam (T2)
+
+T2 doesn't draw for the user. It interprets their strokes and composition and answers with suggestions they can act on: cleaner strokes, shapes, connectors, labels and, later, guides. Every suggestion points back to the user's own stroke IDs, and T2 never returns a generated image.
+
+- **One suggestion plan.** `src/core/suggestions` defines a versioned, provider-neutral plan. T0 lenses emit it from Phase 1, and T2 will emit the same plan, so both share one preview, per-element review and apply path. Each item names its source element IDs and can carry a confidence and a short reason, which the learner explanations (Phase 6) can reuse.
+- **Provider seam.** `src/perception/interpret` holds:
+  - an `InterpretProvider` interface that declares its capabilities (image input, JSON mode);
+  - a request type: lens, simplified strokes with IDs, typed text, the T0 plan, an optional Set-of-Mark image and the user's intent;
+  - a pure prompt builder, a strict response validator and a mock provider.
+
+  Phase 1 adds no network code.
+- **First adapter.** OpenAI-compatible Chat Completions, configured for DeepSeek: base URL `https://api.deepseek.com`, model `deepseek-flash`, images sent as `image_url` data URLs, and JSON Output (`response_format: {"type": "json_object"}`). JSON Output needs the word "json" and an example in the prompt. It can occasionally return empty content, which counts as a failed request. Models without image input get the strokes and the plan as text only. Checked against the DeepSeek API docs on 2026-10-17.
+- **Keys stay on a server.** In local development, a Vite dev-server route, `/api/interpret`, reads `DEEPSEEK_API_KEY` from `.env.local`, which git ignores. The key never gets a `VITE_` prefix, because Vite inlines those variables into the bundle. The hosted proxy comes in Phase 3 on another host (decision 13), and its origin is added to `connect-src`.
 
 ### T1 candidates (verified Oct 2026)
 
@@ -177,13 +192,20 @@ Targets marked † are initial guesses, to be recalibrated after the recognition
 **Phase 1: Diagram lens, geometry only (week 2)**
 - Fit arrows, diamonds and connectors; build the scene graph; emit native Excalidraw shapes with bound arrows.
 - Read labels from typed text inside shapes and next to arrows.
+- Add the shared suggestion plan (§6) and move the stroke cleanup onto it. Each preview item can be accepted or rejected before applying.
+- Build the Interpret seam (§6) without network code: provider interface, prompt builder, response validator and a mock provider, all covered by tests.
 - Add Mermaid and SVG export.
 - Every push to `main` redeploys to GitHub Pages (decision 13). The workflow type-checks, tests, and builds with the repo's base path. No server is needed while Interpret is out.
 - *Exit:* node/edge accuracy of at least 90%† on fixtures; the MVP demo (§11) works on the hosted build; a hosted session makes no third-party requests.
 
 ### After the MVP
 
-Phase 2 follows the demo directly. The order of the later phases will be revisited after user testing.
+Phase 2 follows the demo directly. The Interpret spike can run alongside it because it never ships to the hosted build. The order of the later phases will be revisited after user testing.
+
+**Interpret spike (local development only, right after Phase 1)**
+- Add the OpenAI-compatible DeepSeek adapter behind the dev-server route `/api/interpret` (§6), plus an **Interpret** button that exists only in development builds.
+- Send the simplified strokes, typed text and the T0 plan, plus a Set-of-Mark image when the model accepts images. Validate the answer and show it through the same preview and per-element review as T0.
+- *Exit:* a messy flowchart with handwritten labels comes back as a valid plan that previews and applies like a T0 suggestion; invalid or empty answers leave the canvas untouched and say why; the key never appears in the bundle, the browser or git.
 
 **Phase 2: User testing**
 - Task-based tests with 3–5 users per persona, starting with engineers.
@@ -196,7 +218,7 @@ Phase 2 follows the demo directly. The order of the later phases will be revisit
   - Measure accuracy, p50/p95 latency in Edge (WASM and WebGPU), download size, and cost.
   - For each task, pick the cheapest tier that meets its target.
 - Add $Q templates for personal symbols.
-- Add the T2 proxy `/api/interpret` with the mock adapter, Set-of-Mark rendering and a zod schema. Then add the first real provider adapter, chosen from the bake-off. Hosted AI is the paid tier (decision 8), so the proxy also needs access control and quotas.
+- Host the `/api/interpret` proxy outside Pages (decision 13), reusing the Phase 1 seam and the spike's adapter, and add its origin to `connect-src`. The bake-off can replace DeepSeek as the default provider. Hosted AI is the paid tier (decision 8), so the proxy also needs access control and quotas.
 - *Exit:* with a real provider, flowchart to Mermaid with handwritten labels in under 5 s p95†.
 
 **Phase 4: Interface lens (headline demo)**
@@ -262,7 +284,7 @@ Excalidraw is MIT-licensed ("Copyright (c) 2020 Excalidraw"). That allows commer
 | GitHub Pages has no server side | CSP in a `<meta>` tag; host the Phase 3 proxy elsewhere (for example Azure Functions or Cloudflare Workers) and allow only its origin in `connect-src` |
 | LLM hallucination | Schema validation, references to stroke IDs only, preview plus per-element accept |
 | Latency and cost | Use the ladder, run T2 only on demand, cache results by scene-graph hash |
-| API key exposure | Keys live only in the server-side proxy |
+| API key exposure | Keys live only on a server: `.env.local` behind the dev-server route in development, the hosted proxy in production. Never put a key in a `VITE_`-prefixed variable, because Vite inlines those into the bundle. |
 | Model licenses | Keep non-commercial weights such as MobileCLIP out of shipped builds; confirm the MobileViT base and UISketch licenses |
 | Excalidraw API changes | Pin the version, keep Excalidraw behind `src/canvas/excalidraw`, and cover the adapter with fixture tests |
 | Third-party requests and license drift | Self-host assets behind a strict CSP; re-run the license scan and regenerate `THIRD_PARTY_NOTICES.md` on every upgrade |
@@ -278,6 +300,7 @@ Excalidraw is MIT-licensed ("Copyright (c) 2020 Excalidraw"). That allows commer
 - Other font licenses: https://github.com/excalidraw/virgil; https://github.com/microsoft/cascadia-code/blob/main/LICENSE; https://github.com/lxgw/kose-font
 - Liberation 1.x license: https://sources.debian.org/src/fonts-liberation/1:1.07.4-11/License.txt/
 - Fluent UI: https://developer.microsoft.com/en-us/fluentui
+- DeepSeek API: https://api-docs.deepseek.com; vision: https://api-docs.deepseek.com/guides/vision/; JSON Output: https://api-docs.deepseek.com/guides/json_mode
 - V-JEPA 2 / 2.1: https://github.com/facebookresearch/vjepa2 (arXiv 2506.09985)
 - I-JEPA: https://github.com/facebookresearch/ijepa; HF `facebook/ijepa_vith14_1k`; ONNX `onnx-community/ijepa_vith14_1k`
 - VL-JEPA: arXiv 2512.10942
