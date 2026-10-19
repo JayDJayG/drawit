@@ -442,7 +442,7 @@ export const detectClosedShape = (
     );
     return {
       kind: rounded ? 'roundedRectangle' : 'rectangle',
-      bounds,
+      bounds: fitRectangleBounds(cleaned, bounds),
       points: cleaned,
       confidence: rounded ? 0.86 : 0.94,
     };
@@ -847,9 +847,16 @@ const classifyMultiStrokeShape = (
   if (areaRatio < 0.28 || areaRatio > 1.08) {
     return undefined;
   }
+  const fittedBounds = isDiamond
+    ? fitDiamondBounds(points, bounds)
+    : fitRectangleBounds(
+        points,
+        bounds,
+        entries.map(({ stroke }) => stroke.points),
+      );
   return {
     kind: isDiamond ? 'diamond' : 'rectangle',
-    bounds,
+    bounds: fittedBounds,
     points: points.map((point) => ({ ...point })),
     confidence: isDiamond ? 0.88 : 0.93,
   };
@@ -1230,7 +1237,7 @@ const isArrowheadStroke = (points: readonly SuggestionPoint[]): boolean => {
   const minimum = Math.min(bounds.width, bounds.height);
   return maximum >= 7
     && (
-      (sharpTurns >= 2 && ratio > 1.12)
+      (sharpTurns >= 2 && ratio > 1.12 && maximum <= 55)
       || (reversalTurns >= 1 && ratio > 1.35 && maximum <= 65 && minimum <= 42)
     );
 };
@@ -2036,6 +2043,332 @@ const diamondFitError = (
       + Math.abs(point.y - center.y) / halfHeight;
     return sum + Math.abs(radius - 1);
   }, 0) / Math.max(1, points.length);
+};
+
+const fitRectangleBounds = (
+  points: readonly SuggestionPoint[],
+  seedBounds: SuggestionBounds,
+  groups: readonly (readonly SuggestionPoint[])[] = [points],
+): SuggestionBounds => {
+  const cleaned = cleanPoints(points);
+  if (cleaned.length < 8) {
+    return seedBounds;
+  }
+
+  const center = boundsCenter(seedBounds);
+  const angle = estimateRectangleAngle(groups, seedBounds);
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const local = cleaned.map((point) => ({
+    point,
+    u: (point.x - center.x) * cosine + (point.y - center.y) * sine,
+    v: -(point.x - center.x) * sine + (point.y - center.y) * cosine,
+  }));
+  const scaleU = percentile(local.map(({ u }) => Math.abs(u)), 0.82);
+  const scaleV = percentile(local.map(({ v }) => Math.abs(v)), 0.82);
+  if (scaleU < 4 || scaleV < 4) {
+    return seedBounds;
+  }
+
+  const sides: Record<'left' | 'right' | 'top' | 'bottom', number[]> = {
+    left: [],
+    right: [],
+    top: [],
+    bottom: [],
+  };
+  const assign = (centralFraction: number) => {
+    for (const { u, v } of local) {
+      const verticalScore = Math.abs(u) / scaleU;
+      const horizontalScore = Math.abs(v) / scaleV;
+      if (verticalScore >= horizontalScore) {
+        if (Math.abs(v) <= scaleV * centralFraction) {
+          (u < 0 ? sides.left : sides.right).push(u);
+        }
+      } else if (Math.abs(u) <= scaleU * centralFraction) {
+        (v < 0 ? sides.top : sides.bottom).push(v);
+      }
+    }
+  };
+  assign(0.78);
+  if (
+    sides.left.length < 3
+    || sides.right.length < 3
+    || sides.top.length < 3
+    || sides.bottom.length < 3
+  ) {
+    sides.left = [];
+    sides.right = [];
+    sides.top = [];
+    sides.bottom = [];
+    assign(0.92);
+  }
+  if (
+    sides.left.length < 2
+    || sides.right.length < 2
+    || sides.top.length < 2
+    || sides.bottom.length < 2
+  ) {
+    return seedBounds;
+  }
+
+  const left = trimmedMedian(sides.left);
+  const right = trimmedMedian(sides.right);
+  const top = trimmedMedian(sides.top);
+  const bottom = trimmedMedian(sides.bottom);
+  const width = right - left;
+  const height = bottom - top;
+  if (
+    !Number.isFinite(width)
+    || !Number.isFinite(height)
+    || width < 12
+    || height < 12
+  ) {
+    return seedBounds;
+  }
+
+  const fittedCenter = {
+    u: (left + right) / 2,
+    v: (top + bottom) / 2,
+  };
+  const worldCenter = {
+    x: center.x + fittedCenter.u * cosine - fittedCenter.v * sine,
+    y: center.y + fittedCenter.u * sine + fittedCenter.v * cosine,
+  };
+  const swapAxes = (
+    seedBounds.width >= seedBounds.height
+  ) !== (width >= height);
+  return {
+    x: worldCenter.x - (swapAxes ? height : width) / 2,
+    y: worldCenter.y - (swapAxes ? width : height) / 2,
+    width: swapAxes ? height : width,
+    height: swapAxes ? width : height,
+  };
+};
+
+const fitDiamondBounds = (
+  points: readonly SuggestionPoint[],
+  seedBounds: SuggestionBounds,
+): SuggestionBounds => {
+  const cleaned = cleanPoints(points);
+  if (cleaned.length < 8) {
+    return seedBounds;
+  }
+  const center = boundsCenter(seedBounds);
+  const halfWidth = Math.max(1, seedBounds.width / 2);
+  const halfHeight = Math.max(1, seedBounds.height / 2);
+  const tolerance = Math.max(3, Math.min(halfWidth, halfHeight) * 0.12);
+  const sidePoints = [
+    cleaned.filter((point) => (
+      point.x - center.x >= -tolerance
+      && point.y - center.y <= tolerance
+    )),
+    cleaned.filter((point) => (
+      point.x - center.x >= -tolerance
+      && point.y - center.y >= -tolerance
+    )),
+    cleaned.filter((point) => (
+      point.x - center.x <= tolerance
+      && point.y - center.y >= -tolerance
+    )),
+    cleaned.filter((point) => (
+      point.x - center.x <= tolerance
+      && point.y - center.y <= tolerance
+    )),
+  ];
+  const lines = sidePoints.map((group) => fitRobustLine(group));
+  if (lines.some((line) => !line)) {
+    return seedBounds;
+  }
+  const top = intersectLines(lines[3]!, lines[0]!);
+  const right = intersectLines(lines[0]!, lines[1]!);
+  const bottom = intersectLines(lines[1]!, lines[2]!);
+  const left = intersectLines(lines[2]!, lines[3]!);
+  if (!top || !right || !bottom || !left) {
+    return seedBounds;
+  }
+  const fittedCenter = {
+    x: (top.x + right.x + bottom.x + left.x) / 4,
+    y: (top.y + right.y + bottom.y + left.y) / 4,
+  };
+  const fittedHalfWidth = Math.abs(right.x - left.x) / 2;
+  const fittedHalfHeight = Math.abs(bottom.y - top.y) / 2;
+  const fittedLeft = fittedCenter.x - fittedHalfWidth;
+  const fittedRight = fittedCenter.x + fittedHalfWidth;
+  const fittedTop = fittedCenter.y - fittedHalfHeight;
+  const fittedBottom = fittedCenter.y + fittedHalfHeight;
+  const seedRight = seedBounds.x + seedBounds.width;
+  const seedBottom = seedBounds.y + seedBounds.height;
+  const leftEdge = Math.min(fittedLeft, seedBounds.x + 4);
+  const rightEdge = Math.max(fittedRight, seedRight - 4);
+  const topEdge = Math.min(fittedTop, seedBounds.y + 4);
+  const bottomEdge = Math.max(fittedBottom, seedBottom - 4);
+  const fittedBounds = {
+    x: leftEdge,
+    y: topEdge,
+    width: rightEdge - leftEdge,
+    height: bottomEdge - topEdge,
+  };
+  return fittedBounds.width >= 20 && fittedBounds.height >= 20
+    ? fittedBounds
+    : seedBounds;
+};
+
+type FittedLine = {
+  a: number;
+  b: number;
+  c: number;
+};
+
+const fitRobustLine = (
+  points: readonly SuggestionPoint[],
+): FittedLine | undefined => {
+  if (points.length < 4) {
+    return undefined;
+  }
+  let selected = [...points];
+  let line: FittedLine | undefined;
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    line = fitLine(selected);
+    if (!line) {
+      return undefined;
+    }
+    const residuals = selected.map((point) => Math.abs(
+      line!.a * point.x + line!.b * point.y + line!.c,
+    ));
+    const cutoff = Math.max(2, percentile(residuals, 0.75) + 1);
+    const next = selected.filter((_point, index) => (
+      residuals[index]! <= cutoff
+    ));
+    if (next.length < 4 || next.length === selected.length) {
+      break;
+    }
+    selected = next;
+  }
+  return line;
+};
+
+const fitLine = (
+  points: readonly SuggestionPoint[],
+): FittedLine | undefined => {
+  if (points.length < 2) {
+    return undefined;
+  }
+  const center = {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+  };
+  let xx = 0;
+  let xy = 0;
+  let yy = 0;
+  for (const point of points) {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    xx += dx * dx;
+    xy += dx * dy;
+    yy += dy * dy;
+  }
+  const directionAngle = 0.5 * Math.atan2(2 * xy, xx - yy);
+  const normal = {
+    x: -Math.sin(directionAngle),
+    y: Math.cos(directionAngle),
+  };
+  return {
+    a: normal.x,
+    b: normal.y,
+    c: -(normal.x * center.x + normal.y * center.y),
+  };
+};
+
+const intersectLines = (
+  first: FittedLine,
+  second: FittedLine,
+): SuggestionPoint | undefined => {
+  const determinant = first.a * second.b - second.a * first.b;
+  if (Math.abs(determinant) < 1e-5) {
+    return undefined;
+  }
+  return {
+    x: (first.b * second.c - second.b * first.c) / determinant,
+    y: (second.a * first.c - first.a * second.c) / determinant,
+  };
+};
+
+const estimateRectangleAngle = (
+  groups: readonly (readonly SuggestionPoint[])[],
+  bounds: SuggestionBounds,
+): number => {
+  const minimumSegment = Math.max(3, Math.min(bounds.width, bounds.height) * 0.025);
+  const segments: { angle: number; length: number }[] = [];
+  for (const group of groups) {
+    const cleaned = cleanPoints(group);
+    const simplified = rdp(cleaned, Math.max(1.5, minimumSegment * 0.8));
+    for (let index = 1; index < simplified.length; index += 1) {
+      const first = simplified[index - 1];
+      const second = simplified[index];
+      if (!first || !second) {
+        continue;
+      }
+      const length = distance(first, second);
+      if (length >= minimumSegment) {
+        segments.push({
+          angle: normalizeAngle(Math.atan2(second.y - first.y, second.x - first.x)),
+          length,
+        });
+      }
+    }
+  }
+  if (segments.length === 0) {
+    return 0;
+  }
+  let sumCosine = 0;
+  let sumSine = 0;
+  let totalWeight = 0;
+  let longest = segments[0]!;
+  for (const segment of segments) {
+    const doubled = segment.angle * 2;
+    sumCosine += Math.cos(doubled) * segment.length;
+    sumSine += Math.sin(doubled) * segment.length;
+    totalWeight += segment.length;
+    if (segment.length > longest.length) {
+      longest = segment;
+    }
+  }
+  if (Math.hypot(sumCosine, sumSine) < totalWeight * 0.14) {
+    return longest.angle;
+  }
+  return normalizeAngle(Math.atan2(sumSine, sumCosine) / 2);
+};
+
+const median = (values: readonly number[]): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((first, second) => first - second);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1]! + sorted[middle]!) / 2
+    : sorted[middle]!;
+};
+
+const percentile = (values: readonly number[], fraction: number): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((first, second) => first - second);
+  const index = Math.max(
+    0,
+    Math.min(sorted.length - 1, Math.round((sorted.length - 1) * fraction)),
+  );
+  return sorted[index]!;
+};
+
+const trimmedMedian = (values: readonly number[]): number => {
+  if (values.length < 5) {
+    return median(values);
+  }
+  const sorted = [...values].sort((first, second) => first - second);
+  const trim = Math.floor(sorted.length * 0.15);
+  return median(sorted.slice(trim, sorted.length - trim));
 };
 
 const rectangleFitError = (

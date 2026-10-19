@@ -51,11 +51,11 @@ import {
 } from './adapter-logic';
 import { getElementText } from './text-logic';
 import {
-  bindArrowEndpoint,
-  stabilizeBinding,
+  ensureBinding,
   synchronizeBindingMutuality,
   updateBoundPoint,
   type BindingGeometry,
+  type BindingElement,
 } from './binding-logic';
 import type {
   CanvasAdapterState,
@@ -402,6 +402,12 @@ export class CanvasAdapter {
       ...converted.elements,
     ] as CanvasElement[];
     previewElements = this.applyExistingBindings(previewElements, converted.existingBindings);
+    const previewArrowIds = new Set(converted.elements
+      .filter((element) => element.type === 'arrow')
+      .map((element) => element.id));
+    for (let iteration = 0; iteration < 3; iteration += 1) {
+      previewElements = reconstructBoundEndpoints(previewElements, previewArrowIds);
+    }
     previewElements = synchronizeBindingMutuality(previewElements);
     this.api.updateScene({
       elements: previewElements as unknown as readonly ExcalidrawElement[],
@@ -615,16 +621,24 @@ export class CanvasAdapter {
     const startTarget = this.resolveBindingTarget(item.start, internal.start, elementByItemId, currentElements);
     const endTarget = this.resolveBindingTarget(item.end, internal.end, elementByItemId, currentElements);
     if (startTarget) {
-      next = ensureElementBinding(next, 'start', startTarget.element);
-      if (!hasStableBinding(next, 'start', startTarget.element.id)) {
+      next = ensureBinding(
+        next as unknown as BindingElement,
+        startTarget.element as unknown as BindingGeometry,
+        'start',
+      ) as unknown as OrderedExcalidrawElement;
+      if (!hasBinding(next, 'start', startTarget.element.id)) {
         next = clearElementBinding(next, 'start');
       } else if (startTarget.fromExisting) {
         existingBindings.push({ arrowId: element.id, targetId: startTarget.element.id, endpoint: 'start' });
       }
     }
     if (endTarget) {
-      next = ensureElementBinding(next, 'end', endTarget.element);
-      if (!hasStableBinding(next, 'end', endTarget.element.id)) {
+      next = ensureBinding(
+        next as unknown as BindingElement,
+        endTarget.element as unknown as BindingGeometry,
+        'end',
+      ) as unknown as OrderedExcalidrawElement;
+      if (!hasBinding(next, 'end', endTarget.element.id)) {
         next = clearElementBinding(next, 'end');
       } else if (endTarget.fromExisting) {
         existingBindings.push({ arrowId: element.id, targetId: endTarget.element.id, endpoint: 'end' });
@@ -667,21 +681,17 @@ export class CanvasAdapter {
       if (!target || !arrow) {
         continue;
       }
-      const stabilized = stabilizeBinding(
-        arrow as unknown as {
-          id: string;
-          x: number;
-          y: number;
-          points?: readonly [number, number][];
-        },
+      const corrected = ensureBinding(
+        arrow as unknown as BindingElement,
         target as unknown as BindingGeometry,
         binding.endpoint,
       );
-      if (!stabilized.binding || !isStableBindingValue(stabilized.binding, target.id)) {
+      const correctedBinding = corrected[`${binding.endpoint}Binding`];
+      if (!correctedBinding) {
         arrow[`${binding.endpoint}Binding`] = null;
         continue;
       }
-      arrow.points = stabilized.points as [number, number][];
+      arrow.points = corrected.points as [number, number][];
       const boundElements = Array.isArray(target.boundElements)
         ? [...target.boundElements as { id: string; type: string }[]]
         : [];
@@ -690,9 +700,9 @@ export class CanvasAdapter {
       }
       target.boundElements = boundElements;
       if (binding.endpoint === 'start') {
-        arrow.startBinding = stabilized.binding;
+        arrow.startBinding = correctedBinding;
       } else {
-        arrow.endBinding = stabilized.binding;
+        arrow.endBinding = correctedBinding;
       }
     }
     return next;
@@ -981,20 +991,7 @@ const getInternalRefs = (
   end: getCustomString(element, '_drawitEndRef'),
 });
 
-const isStableBindingValue = (
-  binding: { elementId?: unknown; focus?: unknown; gap?: unknown } | null | undefined,
-  targetId: string,
-): binding is { elementId: string; focus: number; gap: number } => {
-  return binding?.elementId === targetId
-    && typeof binding.focus === 'number'
-    && Number.isFinite(binding.focus)
-    && Math.abs(binding.focus) <= 1
-    && typeof binding.gap === 'number'
-    && Number.isFinite(binding.gap)
-    && binding.gap >= 1;
-};
-
-const hasStableBinding = (
+const hasBinding = (
   element: OrderedExcalidrawElement,
   endpoint: 'start' | 'end',
   targetId: string,
@@ -1002,36 +999,7 @@ const hasStableBinding = (
   const binding = (element as unknown as Record<string, unknown>)[
     `${endpoint}Binding`
   ] as { elementId?: unknown; focus?: unknown; gap?: unknown } | null | undefined;
-  return isStableBindingValue(binding, targetId);
-};
-
-const ensureElementBinding = (
-  element: OrderedExcalidrawElement,
-  endpoint: 'start' | 'end',
-  target: OrderedExcalidrawElement,
-): OrderedExcalidrawElement => {
-  const binding = (element as unknown as Record<string, unknown>)[
-    `${endpoint}Binding`
-  ] as { elementId?: unknown; focus?: unknown; gap?: unknown } | null | undefined;
-  if (
-    binding?.elementId === target.id
-    && isStableBindingValue(binding, target.id)
-  ) {
-    const probe = stabilizeBinding(
-      element as unknown as {
-        id: string;
-        x: number;
-        y: number;
-        points?: readonly [number, number][];
-      },
-      target,
-      endpoint,
-    );
-    if (probe.binding && probe.movement <= 0.5) {
-      return element;
-    }
-  }
-  return setElementBinding(element, endpoint, target);
+  return binding?.elementId === targetId;
 };
 
 const clearElementBinding = (
@@ -1041,23 +1009,6 @@ const clearElementBinding = (
   ...element,
   [`${endpoint}Binding`]: null,
 });
-
-const setElementBinding = (
-  element: OrderedExcalidrawElement,
-  endpoint: 'start' | 'end',
-  target: OrderedExcalidrawElement,
-): OrderedExcalidrawElement => {
-  return bindArrowEndpoint(
-    element as unknown as {
-      id: string;
-      x: number;
-      y: number;
-      points?: readonly [number, number][];
-    },
-    target,
-    endpoint,
-  ) as unknown as OrderedExcalidrawElement;
-};
 
 const reconstructBoundEndpoints = (
   elements: CanvasElement[],
