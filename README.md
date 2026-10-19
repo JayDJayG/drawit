@@ -120,6 +120,10 @@ request by input and output tokens; see its
 [pricing page](https://api-docs.deepseek.com/quick_start/pricing).
 Changes to the key or other `.env.local` settings take effect on the next
 Interpret press; they do not restart Vite or reload the drawing.
+Set `DRAWIT_INTERPRET_CAPTURE=1` (also `true`, `yes`, or `on`) to save successful
+and invalid-answer exchanges under `.drawit/interpret-captures/`; captures
+contain the drawing and stay on your machine. Invalid-answer terminal logs
+include the validator error count and a short JSON-escaped detail.
 
 Hosted builds do not include the Interpret route, client, or button. The
 messages have these meanings: `not-configured` asks you to add the key;

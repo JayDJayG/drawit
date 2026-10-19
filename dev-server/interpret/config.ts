@@ -14,6 +14,7 @@ export type DeepSeekConfig = {
   model: string;
   baseUrl: string;
   images: boolean;
+  capture: boolean;
   maxTokens: number;
   timeoutMs: number;
   thinking: DeepSeekThinking;
@@ -43,6 +44,7 @@ export const resolveDeepSeekConfig = (
   const images = model === 'deepseek-v4-pro'
     ? false
     : imagesSetting ?? (model === 'deepseek-flash');
+  const capture = parseCapture(env.DRAWIT_INTERPRET_CAPTURE);
   const maxTokens = parseBoundedInteger(
     env.DEEPSEEK_MAX_TOKENS,
     DEFAULT_MAX_TOKENS,
@@ -73,6 +75,7 @@ export const resolveDeepSeekConfig = (
     model,
     baseUrl: baseUrlResult.baseUrl,
     images,
+    capture,
     maxTokens,
     timeoutMs,
     thinking,
@@ -137,6 +140,11 @@ const parseBoolean = (value: string | undefined): boolean | undefined => {
     return false;
   }
   return undefined;
+};
+
+const parseCapture = (value: string | undefined): boolean => {
+  return typeof value === 'string'
+    && /^(1|true|yes|on)$/i.test(value.trim());
 };
 
 const parseBoundedInteger = (

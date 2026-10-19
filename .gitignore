@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.drawit/
 .env
 .env.*
 !.env.example

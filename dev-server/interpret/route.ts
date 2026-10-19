@@ -19,6 +19,11 @@ import {
   InterpretError,
   type InterpretErrorCode,
 } from './deepseek-provider';
+import type {
+  InterpretCaptureRecord,
+  InterpretCaptureWriter,
+} from './capture';
+import type { SuggestionPlan } from '../../src/core/suggestions';
 
 export type InterpretRouteLogger = {
   info: (message: string) => void;
@@ -32,6 +37,7 @@ export type InterpretRouteDeps = {
   loadConfig: () => DeepSeekConfig;
   createProvider?: (config: DeepSeekConfig) => CompleteInterpretProvider;
   logger?: InterpretRouteLogger;
+  capture?: InterpretCaptureWriter;
   now?: () => number;
   state?: InterpretRouteState;
 };
@@ -55,8 +61,9 @@ export const handleInterpretRequest = async (
     code: InterpretErrorCode | 'bad-request' | 'forbidden' | 'method-not-allowed' | 'unsupported-media-type' | 'payload-too-large' | 'busy' | 'not-configured' | 'ok',
     message: string,
     usage?: InterpretUsage,
+    logOptions?: InterpretLogOptions,
   ) => {
-    logRequest(logger, startedAt, deps.now, status, code, usage);
+    logRequest(logger, startedAt, deps.now, status, code, usage, logOptions);
     sendJson(res, status, {
       ok: code === 'ok',
       ...(code === 'ok'
@@ -177,19 +184,44 @@ export const handleInterpretRequest = async (
     }
     const validation = validateInterpretResponse(completion.content, request);
     if (!validation.ok) {
+      const latencyMs = requestLatency(startedAt, deps.now);
       respond(
         422,
         'invalid-answer',
         formatValidationMessage(validation.errors),
         completion.usage,
+        {
+          errors: validation.errors,
+          finishReason: completion.finishReason,
+          latencyMs,
+        },
       );
+      if (config.capture) {
+        scheduleCapture(
+          logger,
+          deps.capture,
+          createCaptureRecord(
+            config,
+            request,
+            completion,
+            latencyMs,
+            { status: 422, code: 'invalid-answer', errors: validation.errors },
+            deps.now,
+          ),
+        );
+      }
       return;
     }
-    const latencyMs = Math.max(
-      0,
-      Math.round((deps.now?.() ?? Date.now()) - startedAt),
+    const latencyMs = requestLatency(startedAt, deps.now);
+    logRequest(
+      logger,
+      startedAt,
+      deps.now,
+      200,
+      'ok',
+      completion.usage,
+      { finishReason: completion.finishReason, latencyMs },
     );
-    logRequest(logger, startedAt, deps.now, 200, 'ok', completion.usage);
     sendJson(res, 200, {
       ok: true,
       plan: validation.plan,
@@ -197,6 +229,21 @@ export const handleInterpretRequest = async (
       latencyMs,
       usage: completion.usage ?? null,
     });
+    if (config.capture) {
+      scheduleCapture(
+        logger,
+        deps.capture,
+        createCaptureRecord(
+          config,
+          request,
+          completion,
+          latencyMs,
+          { status: 200, code: 'ok' },
+          deps.now,
+          validation.plan,
+        ),
+      );
+    }
   } catch (error) {
     if (disconnected) {
       logRequest(logger, startedAt, deps.now, 499, 'cancelled');
@@ -639,13 +686,107 @@ const logRequest = (
   status: number,
   code: string,
   usage?: InterpretUsage,
+  options: InterpretLogOptions = {},
 ) => {
-  const latencyMs = Math.max(0, Math.round((now?.() ?? Date.now()) - startedAt));
+  const latencyMs = options.latencyMs
+    ?? requestLatency(startedAt, now);
   const promptTokens = numericUsage(usage, 'prompt_tokens');
   const completionTokens = numericUsage(usage, 'completion_tokens');
+  const details = code === 'invalid-answer'
+    ? ` errors=${options.errors?.length ?? 0} detail=${JSON.stringify(
+      (options.errors ?? []).slice(0, 3).join('; ').slice(0, 240),
+    )}`
+    : '';
+  const finishReason = code === 'ok' || code === 'invalid-answer'
+    ? sanitizeFinishReason(options.finishReason)
+    : undefined;
   logger.info(
-    `drawit interpret status=${status} code=${code} latencyMs=${latencyMs} promptTokens=${promptTokens} completionTokens=${completionTokens}`,
+    `drawit interpret status=${status} code=${code} latencyMs=${latencyMs} promptTokens=${promptTokens} completionTokens=${completionTokens}${details}${finishReason ? ` finish=${finishReason}` : ''}`,
   );
+};
+
+type InterpretLogOptions = {
+  errors?: readonly string[];
+  finishReason?: string | null;
+  latencyMs?: number;
+};
+
+const requestLatency = (
+  startedAt: number,
+  now: (() => number) | undefined,
+): number => Math.max(0, Math.round((now?.() ?? Date.now()) - startedAt));
+
+const sanitizeFinishReason = (
+  value: string | null | undefined,
+): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const sanitized = value
+    .toLowerCase()
+    .replace(/[^a-z_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return /^[a-z_]+$/.test(sanitized) ? sanitized : undefined;
+};
+
+const createCaptureRecord = (
+  config: DeepSeekConfig,
+  request: InterpretRequest,
+  completion: {
+    content: string;
+    finishReason: string | null;
+    usage?: InterpretUsage;
+    model: string;
+  },
+  latencyMs: number,
+  outcome: InterpretCaptureRecord['outcome'],
+  now: (() => number) | undefined,
+  plan?: SuggestionPlan,
+): InterpretCaptureRecord => ({
+  version: 1,
+  capturedAt: new Date(now?.() ?? Date.now()).toISOString(),
+  outcome: {
+    status: outcome.status,
+    code: outcome.code,
+    ...(outcome.errors ? { errors: outcome.errors.slice(0, 50) } : {}),
+  },
+  latencyMs,
+  usage: completion.usage ?? null,
+  finishReason: completion.finishReason ?? null,
+  model: completion.model || config.model,
+  settings: {
+    model: config.model,
+    images: config.images,
+    thinking: config.thinking,
+    reasoningEffort: config.reasoningEffort,
+    maxTokens: config.maxTokens,
+    timeoutMs: config.timeoutMs,
+  },
+  request,
+  rawContent: completion.content,
+  ...(plan ? { plan } : {}),
+});
+
+const scheduleCapture = (
+  logger: InterpretRouteLogger,
+  capture: InterpretCaptureWriter | undefined,
+  record: InterpretCaptureRecord,
+): void => {
+  if (!capture) {
+    return;
+  }
+  Promise.resolve()
+    .then(() => capture(record))
+    .catch((error: unknown) => {
+      const code = typeof error === 'object'
+        && error !== null
+        && 'code' in error
+        && typeof error.code === 'string'
+        && error.code.length > 0
+        ? error.code
+        : 'unknown';
+      logger.info(`drawit interpret capture failed code=${code}`);
+    });
 };
 
 const numericUsage = (

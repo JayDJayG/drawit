@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import {
+  getDeepSeekStatus,
   resolveDeepSeekConfig,
   type DeepSeekConfig,
 } from '../dev-server/interpret/config';
@@ -26,6 +27,7 @@ const validConfig = (
   model: 'deepseek-flash',
   baseUrl: 'http://127.0.0.1:43210/v1',
   images: false,
+  capture: false,
   maxTokens: 16_384,
   timeoutMs: 60_000,
   thinking: 'disabled',
@@ -43,6 +45,23 @@ const jsonResponse = (
 });
 
 describe('DeepSeek configuration and provider', () => {
+  it('parses the opt-in capture setting without exposing it in status', () => {
+    for (const value of ['1', 'true', 'TRUE', ' yes ', 'on']) {
+      const config = resolveDeepSeekConfig({
+        DEEPSEEK_API_KEY: TEST_KEY,
+        DRAWIT_INTERPRET_CAPTURE: value,
+      });
+      expect(config.capture).toBe(true);
+      expect(getDeepSeekStatus(config)).not.toHaveProperty('capture');
+    }
+    for (const value of [undefined, '', '0', 'false', 'no', 'off', 'maybe']) {
+      expect(resolveDeepSeekConfig({
+        DEEPSEEK_API_KEY: TEST_KEY,
+        ...(value === undefined ? {} : { DRAWIT_INTERPRET_CAPTURE: value }),
+      }).capture).toBe(false);
+    }
+  });
+
   it('applies model, image, token, timeout and thinking defaults safely', () => {
     const config = resolveDeepSeekConfig({
       DEEPSEEK_API_KEY: TEST_KEY,

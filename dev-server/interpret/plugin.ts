@@ -1,6 +1,7 @@
 import { loadEnv, type Plugin, type ViteDevServer } from 'vite';
 import { resolve } from 'node:path';
 import { resolveDeepSeekConfig } from './config';
+import { createInterpretCaptureWriter } from './capture';
 import { createDeepSeekProvider } from './deepseek-provider';
 import {
   createInterpretRouteState,
@@ -21,11 +22,12 @@ export const interpretDevServerPlugin = (): Plugin => ({
       `.env.${mode}`,
       `.env.${mode}.local`,
     ].map((file) => resolve(envDir, file));
+    const captureDir = resolve(root, '.drawit', 'interpret-captures');
     // Ignore env edits so Vite does not reload the page and erase the drawing.
     return {
       server: {
         watch: {
-          ignored: envFiles,
+          ignored: [...envFiles, captureDir],
         },
       },
     };
@@ -35,12 +37,18 @@ export const interpretDevServerPlugin = (): Plugin => ({
     const base = normalizeBase(server.config.base);
     const rootPath = `${base}/api/interpret`.replace(/\/{2,}/g, '/');
     const statusPath = `${rootPath}/status`;
+    const captureDir = resolve(
+      server.config.root,
+      '.drawit',
+      'interpret-captures',
+    );
     const deps = {
       state,
       loadConfig: () => resolveDeepSeekConfig(
         loadEnv(server.config.mode, server.config.envDir, ''),
       ),
       createProvider: createDeepSeekProvider,
+      capture: createInterpretCaptureWriter(captureDir),
       logger: {
         info: (message: string) => server.config.logger.info(message),
       },
