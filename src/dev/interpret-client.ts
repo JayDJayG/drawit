@@ -3,6 +3,18 @@ import type {
   ModelCancellationReason,
 } from '../canvas/excalidraw/CanvasAdapter';
 import type { ModelSceneSnapshot } from '../canvas/excalidraw/types';
+import type { T0NativeNode } from '../perception/t0';
+import { snapEndpoint } from '../perception/t0';
+import {
+  tidyConnectorAxis,
+  tidyConnectorPath,
+  type ConnectorBoundNode,
+} from '../core/geometry';
+import type {
+  NodeRef,
+  ShapeSuggestionItem,
+  SuggestionPlan,
+} from '../core/suggestions';
 import {
   aliasInterpretRequest,
   buildInterpretRequest,
@@ -30,6 +42,7 @@ export type InterpretSuccessResponse = {
   model: string;
   latencyMs: number;
   usage: Record<string, unknown> | null;
+  dropped?: number;
 };
 
 export type InterpretUiState = {
@@ -109,7 +122,14 @@ export const interpret = async (
       response.status,
     );
   }
-  return payload as InterpretSuccessResponse;
+  return {
+    ok: true,
+    plan: payload.plan,
+    model: typeof payload.model === 'string' ? payload.model : '',
+    latencyMs: typeof payload.latencyMs === 'number' ? payload.latencyMs : 0,
+    usage: isRecord(payload.usage) ? payload.usage : null,
+    dropped: nonNegativeInteger(payload.dropped),
+  };
 };
 
 export const createInterpretController = (
@@ -281,8 +301,17 @@ export const createInterpretController = (
         return;
       }
       const grounded = groundConnectorEndpoints(validation.plan, request);
-      const plan = unaliasInterpretPlan(grounded, aliased.aliases);
-      const shown = adapter.showModelPlan(plan, scene.snapshot, { label: 'Interpret' });
+      const tidied = tidyInterpretPlan(
+        grounded,
+        scene.nativeNodes ?? [],
+      );
+      const plan = unaliasInterpretPlan(tidied, aliased.aliases);
+      const skipped = (result.dropped ?? 0) + validation.dropped.length;
+      const shown = adapter.showModelPlan(
+        plan,
+        scene.snapshot,
+        { label: 'Interpret', skipped },
+      );
       if (!shown.shown) {
         adapter.setModelStatus(
           shown.reason === 'stale'
@@ -409,6 +438,106 @@ const formatTransportError = (error: DevInterpretError): string => {
     default:
       return 'The local Interpret request failed. Try again.';
   }
+};
+
+const tidyInterpretPlan = (
+  plan: SuggestionPlan,
+  nativeNodes: readonly T0NativeNode[] = [],
+): SuggestionPlan => {
+  const planNodes = plan.items
+    .filter((item): item is ShapeSuggestionItem => item.kind === 'shape')
+    .map((item) => ({
+      ref: { itemId: item.id } as const,
+      kind: item.shape,
+      bounds: {
+        x: item.x,
+        y: item.y,
+        width: item.width,
+        height: item.height,
+      },
+    }));
+  const sceneNodes = nativeNodes.map((node) => ({
+    ref: { elementId: node.id } as const,
+    kind: node.kind,
+    bounds: { ...node.bounds },
+  }));
+  const candidates = [...planNodes, ...sceneNodes];
+  let changed = false;
+  const items = plan.items.map((item) => {
+    if (item.kind !== 'connector') {
+      return item;
+    }
+    const samples = item.points.map(([x, y]) => ({ x, y }));
+    const path = tidyConnectorPath(samples);
+    let start = item.start;
+    let end = item.end;
+    let points = path;
+    if (!start) {
+      const match = snapEndpoint(points[0], points[1], candidates);
+      if (match) {
+        start = match.ref;
+        points[0] = match.point;
+      }
+    }
+    if (!end) {
+      const lastIndex = points.length - 1;
+      const match = snapEndpoint(points[lastIndex], points[lastIndex - 1], candidates);
+      if (match) {
+        end = match.ref;
+        points[lastIndex] = match.point;
+      }
+    }
+    const axisPoints = tidyConnectorAxis(
+      points,
+      samples,
+      {
+        start: findBoundNode(start, candidates),
+        end: findBoundNode(end, candidates),
+      },
+    );
+    const next = {
+      ...item,
+      points: axisPoints.map((point) => [point.x, point.y] as [number, number]),
+      start,
+      end,
+    };
+    if (JSON.stringify(next) !== JSON.stringify(item)) {
+      changed = true;
+    }
+    return next;
+  });
+  return changed ? { ...plan, items } : plan;
+};
+
+const findBoundNode = (
+  ref: NodeRef | null,
+  nodes: readonly ({
+    ref: NodeRef;
+    kind: ConnectorBoundNode['kind'];
+    bounds: ConnectorBoundNode['bounds'];
+  })[],
+): ConnectorBoundNode | undefined => {
+  if (!ref) {
+    return undefined;
+  }
+  const node = nodes.find((candidate) => (
+    'itemId' in ref && 'itemId' in candidate.ref
+      ? ref.itemId === candidate.ref.itemId
+      : 'elementId' in ref && 'elementId' in candidate.ref
+        ? ref.elementId === candidate.ref.elementId
+        : false
+  ));
+  return node ? { kind: node.kind, bounds: node.bounds } : undefined;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+};
+
+const nonNegativeInteger = (value: unknown): number => {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : 0;
 };
 
 const renderSetOfMarkImage = async (

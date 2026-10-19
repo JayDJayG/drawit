@@ -9,6 +9,10 @@ import type {
   ModelSceneSnapshot,
 } from '../src/canvas/excalidraw/types';
 import type { CanvasAdapter } from '../src/canvas/excalidraw/CanvasAdapter';
+import {
+  formatSuggestionPreviewStatus,
+  type SuggestionPlan,
+} from '../src/core/suggestions';
 import type { InterpretStatusResponse } from '../src/dev/interpret-client';
 import { DEFAULT_INTERPRET_LIMITS } from '../src/perception/interpret';
 import { validatePostedRequest } from '../dev-server/interpret/route';
@@ -43,6 +47,7 @@ class FakeAdapter {
   readonly input: ModelInput;
   readonly statuses: string[] = [];
   readonly shownPlans: unknown[] = [];
+  readonly shownOptions: unknown[] = [];
   cancellationHandler?: (reason: 'escape' | 'superseded' | 'scene-changed') => void;
   dismissCount = 0;
 
@@ -77,8 +82,9 @@ class FakeAdapter {
     return true;
   }
 
-  showModelPlan(nextPlan: unknown): { shown: true } {
+  showModelPlan(nextPlan: unknown, _snapshot?: unknown, options?: unknown): { shown: true } {
     this.shownPlans.push(nextPlan);
+    this.shownOptions.push(options);
     return { shown: true };
   }
 
@@ -400,6 +406,220 @@ describe('development Interpret controller', () => {
         points: [[0, 0], [100, 0]],
         sourceIds: ['real-shaft', 'real-head'],
       }],
+    });
+  });
+
+  it('tidies and binds the captured horizontal arrow to native nodes idempotently', async () => {
+    const adapter = new FakeAdapter({
+      input: {
+        lens: 'diagram',
+        strokes: [{
+          id: 's1',
+          points: [{ x: 824.94, y: 993.67 }, { x: 957.17, y: 992.56 }],
+        }],
+        texts: [],
+        t0Plan: null,
+      },
+      nativeNodes: [
+        {
+          id: 'native-shape-2',
+          kind: 'ellipse',
+          bounds: { x: 620, y: 910, width: 204, height: 165 },
+        },
+        {
+          id: 'native-shape-3',
+          kind: 'diamond',
+          bounds: { x: 982, y: 905, width: 200, height: 190 },
+        },
+      ],
+      snapshot: { elementIds: [], versions: {} },
+    });
+    const modelPlan = {
+      version: 1,
+      lens: 'diagram' as const,
+      tier: 't2' as const,
+      items: [{
+        id: 'connector-1',
+        kind: 'connector' as const,
+        points: [
+          [824.94, 993.67],
+          [897.17, 993.67],
+          [919.39, 990.33],
+          [927.17, 994.78],
+          [951.61, 995.89],
+          [970.5, 1007],
+          [983.83, 1003.67],
+        ] as [number, number][],
+        start: null,
+        end: null,
+        startArrowhead: null,
+        endArrowhead: 'arrow' as const,
+        sourceIds: ['s1'],
+      }],
+      unresolved: [],
+    };
+    const transport: InterpretClientTransport = {
+      getStatus: async () => status,
+      interpret: async () => ({
+        ok: true,
+        plan: modelPlan,
+        model: 'deepseek-flash',
+        latencyMs: 12,
+        usage: null,
+        dropped: 2,
+      }),
+    };
+    const controller = createInterpretController(
+      adapterAsCanvas(adapter),
+      { transport },
+    );
+
+    await controller.start();
+    await controller.start();
+
+    expect(adapter.shownPlans).toHaveLength(2);
+    expect(adapter.shownPlans[0]).toEqual(adapter.shownPlans[1]);
+    const shown = adapter.shownPlans[0] as {
+      items: Array<{
+        points: Array<[number, number]>;
+        start: unknown;
+        end: unknown;
+      }>;
+    };
+    const edge = shown.items[0]!;
+    expect(edge.start).toEqual({ elementId: 'native-shape-2' });
+    expect(edge.end).toEqual({ elementId: 'native-shape-3' });
+    expect(edge.points).toHaveLength(2);
+    expect(edge.points[0]?.[0]).toBe(824.94);
+    expect(edge.points[0]?.[1]).toBeCloseTo(994.78, 1);
+    expect(edge.points[1]?.[0]).toBeGreaterThanOrEqual(983);
+    expect(edge.points[1]?.[0]).toBeLessThanOrEqual(988);
+    expect(edge.points[1]?.[1]).toBeCloseTo(994.78, 1);
+    expect(adapter.shownOptions).toEqual([
+      { label: 'Interpret', skipped: 2 },
+      { label: 'Interpret', skipped: 2 },
+    ]);
+  });
+
+  it('keeps singular and plural skipped wording through preview toggles', () => {
+    const rejected = new Set<string>();
+    const format = (skipped: number) => formatSuggestionPreviewStatus(
+      plan as unknown as SuggestionPlan,
+      rejected,
+      'Interpret',
+      skipped,
+    );
+
+    expect(format(1)).toContain('(1 suggestion skipped).');
+    expect(format(2)).toContain('(2 suggestions skipped).');
+    expect(format(0)).not.toContain('skipped');
+
+    const beforeToggle = format(1);
+    rejected.add('shape-1');
+    const whileRejected = format(1);
+    rejected.delete('shape-1');
+    const afterRestore = format(1);
+    expect(whileRejected).toContain('(1 suggestion skipped).');
+    expect(afterRestore).toBe(beforeToggle);
+  });
+
+  it('axis-snaps a model-bound connector and fits only the inside rectangle end', async () => {
+    const adapter = new FakeAdapter({
+      input: {
+        lens: 'diagram',
+        strokes: [
+          {
+            id: 's1',
+            points: [
+              { x: 550, y: 664 },
+              { x: 791, y: 664 },
+              { x: 791, y: 779 },
+              { x: 550, y: 779 },
+              { x: 550, y: 664 },
+            ],
+          },
+          {
+            id: 's2',
+            points: [{ x: 678, y: 767 }, { x: 696, y: 905 }],
+          },
+          {
+            id: 's3',
+            points: [{ x: 722, y: 910 }, { x: 824, y: 1075 }],
+          },
+        ],
+        texts: [],
+        t0Plan: null,
+      },
+      snapshot: { elementIds: [], versions: {} },
+    });
+    const modelPlan = {
+      version: 1,
+      lens: 'diagram' as const,
+      tier: 't2' as const,
+      items: [
+        {
+          id: 'shape-1',
+          kind: 'shape' as const,
+          shape: 'rectangle' as const,
+          x: 550,
+          y: 664,
+          width: 241,
+          height: 115,
+          sourceIds: ['s1'],
+        },
+        {
+          id: 'shape-2',
+          kind: 'shape' as const,
+          shape: 'ellipse' as const,
+          x: 620,
+          y: 910,
+          width: 204,
+          height: 165,
+          sourceIds: ['s3'],
+        },
+        {
+          id: 'connector-1',
+          kind: 'connector' as const,
+          points: [[678, 767], [696, 905]] as [number, number][],
+          start: { itemId: 'shape-1' },
+          end: { itemId: 'shape-2' },
+          startArrowhead: null,
+          endArrowhead: 'arrow' as const,
+          sourceIds: ['s2'],
+        },
+      ],
+      unresolved: [],
+    };
+    const transport: InterpretClientTransport = {
+      getStatus: async () => status,
+      interpret: async () => ({
+        ok: true,
+        plan: modelPlan,
+        model: 'deepseek-flash',
+        latencyMs: 12,
+        usage: null,
+      }),
+    };
+    const controller = createInterpretController(
+      adapterAsCanvas(adapter),
+      { transport },
+    );
+
+    await controller.start();
+
+    expect(adapter.shownPlans[0]).toMatchObject({
+      items: [
+        {},
+        {},
+        {
+          points: [
+            [expect.closeTo(687, 0.5), expect.closeTo(779, 0.5)],
+            [expect.closeTo(687, 0.5), 905],
+          ],
+          start: { itemId: 'shape-1' },
+          end: { itemId: 'shape-2' },
+        },
+      ],
     });
   });
 });

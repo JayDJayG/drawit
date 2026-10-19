@@ -72,7 +72,7 @@ const invalidContent = JSON.stringify({
   items: [{
     id: 'bad"\n',
     kind: 'shape',
-    shape: 'rectangle',
+    shape: 'not-a-shape',
     x: 0,
     y: 0,
     width: 80,
@@ -84,6 +84,27 @@ const invalidContent = JSON.stringify({
     x: 0,
     y: 0,
     text: 'duplicate',
+    sourceIds: ['s1'],
+  }],
+  unresolved: [],
+});
+
+const partialContent = JSON.stringify({
+  version: 1,
+  lens: 'stroke',
+  tier: 't0',
+  items: [{
+    id: 'shape-1',
+    kind: 'shape',
+    shape: 'rectangle',
+    x: 0,
+    y: 0,
+    width: 80,
+    height: 40,
+    sourceIds: ['s1'],
+  }, {
+    id: 'bad"\n',
+    kind: 'not-a-kind',
     sourceIds: ['s1'],
   }],
   unresolved: [],
@@ -284,6 +305,41 @@ describe('Interpret diagnostics and capture', () => {
     expect(records[1]?.outcome.errors?.length).toBeLessThanOrEqual(50);
     expect(records[1]?.request).toEqual(seenRequests[1]);
     expect(JSON.stringify(records)).not.toContain(TEST_KEY);
+  });
+
+  it('captures bounded drop and repair outcomes for salvaged answers', async () => {
+    const records: InterpretCaptureRecord[] = [];
+    const app = await routeServer({
+      loadConfig: () => configFor('http://127.0.0.1:1', 'yes'),
+      createProvider: (): CompleteInterpretProvider => ({
+        id: 'stub',
+        capabilities: { images: false, jsonMode: true },
+        complete: async () => completion(partialContent),
+        interpret: async () => partialContent,
+      }),
+      capture: (record) => {
+        records.push(record);
+      },
+    });
+
+    const response = await post(app.url);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ dropped: 1 });
+    await waitFor(() => records.length === 1);
+    expect(records[0]).toMatchObject({
+      version: 1,
+      outcome: {
+        status: 200,
+        code: 'ok',
+        dropped: [expect.stringContaining('items[1]')],
+        repairs: [
+          expect.stringContaining('tier normalized'),
+          expect.stringContaining('lens normalized'),
+        ],
+      },
+    });
+    expect(records[0]?.outcome.dropped).toHaveLength(1);
+    expect(records[0]?.outcome.repairs).toHaveLength(2);
   });
 
   it('does not call capture when disabled or when the provider fails', async () => {

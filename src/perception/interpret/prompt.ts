@@ -64,6 +64,7 @@ export const buildInterpretPrompt = (
     'The shape value must be exactly rectangle, roundedRectangle, diamond, or ellipse.',
     'A connector startArrowhead and endArrowhead must each be exactly "arrow" or null.',
     'Stroke-item points are {x, y} objects, stroke-item bounds are {x, y, width, height}, and connector points are [x, y] pairs.',
+    'Connector points are only the start point, each deliberate corner, and the arrowhead tip, so a straight connector has exactly two points; never trace hand wobble or the outline of a hand-drawn arrowhead.',
     'The children array contains shape item IDs from this same plan.',
     'Connector start and end itemIds must be shape item IDs from this plan, never IDs copied from t0Plan (such as p1) or source stroke IDs.',
     't0Plan is a draft from Drawit’s local recognizer with p1… item IDs; treat it only as a hint that you may improve or ignore.',

@@ -220,7 +220,12 @@ export const handleInterpretRequest = async (
       200,
       'ok',
       completion.usage,
-      { finishReason: completion.finishReason, latencyMs },
+      {
+        finishReason: completion.finishReason,
+        latencyMs,
+        dropped: validation.dropped,
+        repairs: validation.repairs,
+      },
     );
     sendJson(res, 200, {
       ok: true,
@@ -228,6 +233,7 @@ export const handleInterpretRequest = async (
       model: completion.model || config.model,
       latencyMs,
       usage: completion.usage ?? null,
+      dropped: validation.dropped.length,
     });
     if (config.capture) {
       scheduleCapture(
@@ -238,7 +244,16 @@ export const handleInterpretRequest = async (
           request,
           completion,
           latencyMs,
-          { status: 200, code: 'ok' },
+          {
+            status: 200,
+            code: 'ok',
+            ...(validation.dropped.length > 0
+              ? { dropped: validation.dropped }
+              : {}),
+            ...(validation.repairs.length > 0
+              ? { repairs: validation.repairs }
+              : {}),
+          },
           deps.now,
           validation.plan,
         ),
@@ -696,7 +711,15 @@ const logRequest = (
     ? ` errors=${options.errors?.length ?? 0} detail=${JSON.stringify(
       (options.errors ?? []).slice(0, 3).join('; ').slice(0, 240),
     )}`
-    : '';
+    : code === 'ok'
+      ? `${options.dropped && options.dropped.length > 0
+        ? ` dropped=${options.dropped.length} detail=${JSON.stringify(
+          options.dropped.slice(0, 3).join('; ').slice(0, 240),
+        )}`
+        : ''}${options.repairs && options.repairs.length > 0
+        ? ` repaired=${options.repairs.length}`
+        : ''}`
+      : '';
   const finishReason = code === 'ok' || code === 'invalid-answer'
     ? sanitizeFinishReason(options.finishReason)
     : undefined;
@@ -707,6 +730,8 @@ const logRequest = (
 
 type InterpretLogOptions = {
   errors?: readonly string[];
+  dropped?: readonly string[];
+  repairs?: readonly string[];
   finishReason?: string | null;
   latencyMs?: number;
 };
@@ -749,6 +774,12 @@ const createCaptureRecord = (
     status: outcome.status,
     code: outcome.code,
     ...(outcome.errors ? { errors: outcome.errors.slice(0, 50) } : {}),
+    ...(outcome.dropped?.length
+      ? { dropped: outcome.dropped.slice(0, 50) }
+      : {}),
+    ...(outcome.repairs?.length
+      ? { repairs: outcome.repairs.slice(0, 50) }
+      : {}),
   },
   latencyMs,
   usage: completion.usage ?? null,

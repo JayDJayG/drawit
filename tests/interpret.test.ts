@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aliasInterpretRequest,
   MockInterpretProvider,
   buildInterpretPrompt,
   buildInterpretRequest,
+  unaliasInterpretPlan,
   validateInterpretResponse,
   type InterpretRequest,
 } from '../src/perception/interpret';
@@ -59,6 +61,29 @@ const validResponse = () => ({
 });
 
 describe('Interpret seam', () => {
+  it('preserves native element refs while unaliasing a model plan', () => {
+    const aliased = aliasInterpretRequest(request());
+    const plan = {
+      version: 1 as const,
+      lens: 'diagram' as const,
+      tier: 't2' as const,
+      items: [{
+        id: 'edge',
+        kind: 'connector' as const,
+        points: [[10, 10], [20, 20]] as [number, number][],
+        start: { elementId: 'native-shape' },
+        end: null,
+        startArrowhead: null,
+        endArrowhead: 'arrow' as const,
+        sourceIds: ['s1'],
+      }],
+      unresolved: [],
+    };
+    expect(unaliasInterpretPlan(plan, aliased.aliases).items[0]).toMatchObject({
+      start: { elementId: 'native-shape' },
+    });
+  });
+
   it('builds a bounded, rounded request and a provider-neutral prompt', () => {
     const bounded = buildInterpretRequest({
       ...request(),
@@ -84,6 +109,9 @@ describe('Interpret seam', () => {
     }, { images: true, jsonMode: true });
     expect(messages[0]?.content).toContain('return actionable suggestions');
     expect(messages[0]?.content).toContain('Never invent IDs');
+    expect(messages[0]?.content).toContain(
+      'Connector points are only the start point, each deliberate corner, and the arrowhead tip, so a straight connector has exactly two points; never trace hand wobble or the outline of a hand-drawn arrowhead.',
+    );
     expect(messages[0]?.content).toContain('json');
     expect(messages[1]?.content).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'image_url' }),
@@ -95,34 +123,44 @@ describe('Interpret seam', () => {
     expect(validateInterpretResponse(JSON.stringify(validResponse()), input)).toEqual({
       ok: true,
       plan: validResponse(),
+      dropped: [],
+      repairs: [],
     });
 
     const unknownId = structuredClone(validResponse());
     unknownId.items[0].sourceIds = ['invented'];
     expect(validateInterpretResponse(unknownId, input)).toMatchObject({
-      ok: false,
-      errors: expect.arrayContaining([expect.stringContaining('unknown source')]),
+      ok: true,
+      dropped: [expect.stringContaining('unknown source')],
     });
 
     const duplicateSources = structuredClone(validResponse());
     duplicateSources.items[1].sourceIds = ['text-a'];
     expect(validateInterpretResponse(duplicateSources, input)).toMatchObject({
-      ok: false,
-      errors: expect.arrayContaining([expect.stringContaining('belongs to both')]),
+      ok: true,
+      dropped: [expect.stringContaining('belongs to both')],
     });
 
     const badReference = structuredClone(validResponse());
     badReference.items[1].start = { itemId: 'missing' };
     expect(validateInterpretResponse(badReference, input)).toMatchObject({
-      ok: false,
-      errors: expect.arrayContaining([expect.stringContaining('does not resolve')]),
+      ok: true,
+      plan: {
+        items: [{
+          id: 'shape-a',
+        }, {
+          id: 'edge-b',
+          start: null,
+        }],
+      },
+      repairs: [expect.stringContaining('does not reference a kept shape')],
     });
 
     const farAway = structuredClone(validResponse());
     farAway.items[0].x = 50_000;
     expect(validateInterpretResponse(farAway, input)).toMatchObject({
-      ok: false,
-      errors: expect.arrayContaining([expect.stringContaining('outside the request bounds')]),
+      ok: true,
+      dropped: [expect.stringContaining('outside the request bounds')],
     });
   });
 

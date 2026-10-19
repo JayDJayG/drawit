@@ -15,6 +15,7 @@ import {
   validateInterpretResponse,
   type InterpretRequest,
 } from '../src/perception/interpret';
+import { validateSuggestionPlan } from '../src/core/suggestions';
 import { groundConnectorEndpoints } from '../src/perception/interpret/grounding';
 
 const aliasedRequest = (): InterpretRequest => ({
@@ -29,6 +30,70 @@ const aliasedRequest = (): InterpretRequest => ({
   texts: [{ id: 't1', text: 'Start', x: 30, y: 30, width: 50, height: 20 }],
   t0Plan: null,
 });
+
+const mutationAnswer = () => ({
+  version: 1,
+  lens: 'diagram',
+  tier: 't2',
+  items: [
+    {
+      id: 'shape-a',
+      kind: 'shape',
+      shape: 'rectangle',
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 30,
+      sourceIds: ['s1'],
+      children: ['shape-b'],
+      label: 'A',
+      reason: 'A valid shape.',
+      confidence: 0.8,
+    },
+    {
+      id: 'shape-b',
+      kind: 'ellipse',
+      x: 100,
+      y: 10,
+      width: 50,
+      height: 30,
+      sourceIds: ['s2'],
+    },
+    {
+      id: 'edge-a',
+      kind: 'connector',
+      points: [[60, 25], [100, 25]],
+      start: { itemId: 'shape-a' },
+      end: { itemId: 'shape-b' },
+      startArrowhead: null,
+      endArrowhead: 'arrow',
+      sourceIds: ['s3'],
+      label: 'edge',
+      reason: 'A valid connector.',
+      confidence: 0.7,
+    },
+    {
+      id: 'note-a',
+      kind: 'text',
+      x: 10,
+      y: 60,
+      text: 'note',
+      sourceIds: ['t1'],
+      reason: 'A valid note.',
+    },
+  ],
+  unresolved: [{ sourceIds: ['s4'], reason: 'unclear' }],
+});
+
+const mulberry32 = (seed: number): (() => number) => {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6D2B79F5) | 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+};
 
 describe('Interpret pure helpers', () => {
   it('aliases source and T0 item IDs without leaking real IDs', () => {
@@ -375,15 +440,31 @@ describe('Interpret pure helpers', () => {
         }],
         unresolved: [{ sourceIds: ['s2'], reason: 'uncertain' }],
       },
+      dropped: [],
+      repairs: [],
     });
 
     const badConfidence = structuredClone(response);
     badConfidence.items[0].confidence = 2;
-    expect(validateInterpretResponse(badConfidence, aliasedRequest()).ok).toBe(false);
+    const confidenceResult = validateInterpretResponse(badConfidence, aliasedRequest());
+    expect(confidenceResult).toMatchObject({
+      ok: true,
+      repairs: [expect.stringContaining('confidence omitted')],
+    });
+    if (confidenceResult.ok) {
+      expect(confidenceResult.plan.items[0]).not.toHaveProperty('confidence');
+    }
 
     const badReason = structuredClone(response);
     badReason.items[0].reason = 'x'.repeat(141);
-    expect(validateInterpretResponse(badReason, aliasedRequest()).ok).toBe(false);
+    const reasonResult = validateInterpretResponse(badReason, aliasedRequest());
+    expect(reasonResult).toMatchObject({
+      ok: true,
+      repairs: [expect.stringContaining('reason truncated')],
+    });
+    if (reasonResult.ok) {
+      expect(reasonResult.plan.items[0]).toMatchObject({ reason: 'x'.repeat(140) });
+    }
 
     const wrongAxis = structuredClone(response);
     wrongAxis.items[0].points = [{ x: 10, y: 9999 }, { x: 20, y: 9999 }];
@@ -427,6 +508,331 @@ describe('Interpret pure helpers', () => {
       unresolved: [{ sourceIds: ['s2'], reason: 'not used' }],
     };
     expect(validateInterpretResponse(missing, aliasedRequest()).ok).toBe(false);
+  });
+
+  it('salvages item errors, ownership, refs, children, and unresolved entries', () => {
+    const response = {
+      version: 1,
+      lens: 'diagram',
+      tier: 't2',
+      items: [
+        {
+          id: 'bad-kind',
+          kind: 'not-a-kind',
+          sourceIds: ['s1'],
+        },
+        {
+          id: 'bad-coordinates',
+          kind: 'shape',
+          shape: 'rectangle',
+          x: 9999,
+          y: 10,
+          width: 20,
+          height: 20,
+          sourceIds: ['s2'],
+        },
+        {
+          id: 'bad-source',
+          kind: 'shape',
+          shape: 'rectangle',
+          x: 10,
+          y: 10,
+          width: 20,
+          height: 20,
+          sourceIds: ['invented'],
+        },
+        {
+          id: 'too-many-points',
+          kind: 'connector',
+          points: Array.from({ length: 33 }, (_, index) => [index, index] as [number, number]),
+          start: null,
+          end: null,
+          startArrowhead: null,
+          endArrowhead: 'arrow',
+          sourceIds: ['s3'],
+        },
+        {
+          id: 'keeper',
+          kind: 'shape',
+          shape: 'rectangle',
+          x: 10,
+          y: 10,
+          width: 20,
+          height: 20,
+          sourceIds: ['s4'],
+          children: ['target', 'conflict', 'missing'],
+        },
+        {
+          id: 'target',
+          kind: 'shape',
+          shape: 'ellipse',
+          x: 40,
+          y: 10,
+          width: 20,
+          height: 20,
+          sourceIds: ['s5'],
+        },
+        {
+          id: 'edge',
+          kind: 'connector',
+          points: [[20, 20], [80, 40]],
+          start: { itemId: 'keeper' },
+          end: { itemId: 'conflict' },
+          startArrowhead: null,
+          endArrowhead: 'arrow',
+          sourceIds: ['t1'],
+        },
+        {
+          id: 'conflict',
+          kind: 'shape',
+          shape: 'diamond',
+          x: 80,
+          y: 10,
+          width: 20,
+          height: 20,
+          sourceIds: ['s4'],
+        },
+        {
+          id: 'keeper',
+          kind: 'text',
+          x: 10,
+          y: 10,
+          text: 'duplicate',
+          sourceIds: ['s1'],
+        },
+      ],
+      unresolved: [
+        {
+          sourceIds: ['s1', 't1', 'invented', 42],
+          reason: 'left as drawn',
+        },
+        {
+          sourceIds: ['s1'],
+          reason: 'duplicate unresolved',
+        },
+      ],
+    };
+    const result = validateInterpretResponse(response, aliasedRequest());
+    expect(result).toMatchObject({
+      ok: true,
+      dropped: [
+        expect.stringContaining('bad-kind'),
+        expect.stringContaining('bad-coordinates'),
+        expect.stringContaining('bad-source'),
+        expect.stringContaining('too-many-points'),
+        expect.stringContaining('duplicate item id'),
+        expect.stringContaining('conflict'),
+      ],
+    });
+    if (!result.ok) {
+      return;
+    }
+    expect(result.plan.items).toMatchObject([
+      { id: 'keeper', children: ['target'] },
+      { id: 'target' },
+      {
+        id: 'edge',
+        start: { itemId: 'keeper' },
+        end: null,
+      },
+    ]);
+    expect(result.plan.unresolved).toEqual([{
+      sourceIds: ['s1'],
+      reason: 'left as drawn',
+    }]);
+    expect(result.repairs.join('; ')).toContain('children[1] removed');
+    expect(result.repairs.join('; ')).toContain('children[2] removed');
+    expect(result.repairs.join('; ')).toContain('does not reference a kept shape');
+    const revalidated = validateInterpretResponse(result.plan, aliasedRequest());
+    expect(revalidated).toEqual({
+      ok: true,
+      plan: result.plan,
+      dropped: [],
+      repairs: [],
+    });
+  });
+
+  it('keeps zero items non-fatal and rejects every fatal envelope and budget case', () => {
+    const request = aliasedRequest();
+    const empty = {
+      version: 1,
+      lens: 'diagram',
+      tier: 't2',
+      items: [],
+      unresolved: [],
+    };
+    expect(validateInterpretResponse(empty, request)).toMatchObject({
+      ok: true,
+      plan: { items: [] },
+    });
+    expect(validateInterpretResponse('', request)).toEqual({
+      ok: false,
+      errors: ['response was empty'],
+    });
+    expect(validateInterpretResponse('{', request)).toEqual({
+      ok: false,
+      errors: ['response was not valid JSON'],
+    });
+    expect(validateInterpretResponse([], request)).toEqual({
+      ok: false,
+      errors: ['plan must be an object'],
+    });
+    expect(validateInterpretResponse({ ...empty, version: 2 }, request)).toEqual({
+      ok: false,
+      errors: ['plan version must be 1'],
+    });
+    expect(validateInterpretResponse({ ...empty, items: null }, request)).toEqual({
+      ok: false,
+      errors: ['plan items must be an array'],
+    });
+
+    const tooManyItems = {
+      ...empty,
+      items: Array.from({ length: 41 }, (_, index) => ({
+        id: `item-${index}`,
+        kind: 'shape',
+        shape: 'rectangle',
+        x: 10,
+        y: 10,
+        width: 20,
+        height: 20,
+        sourceIds: ['s1'],
+      })),
+    };
+    expect(validateInterpretResponse(tooManyItems, request)).toMatchObject({
+      ok: false,
+      errors: ['plan contains too many items (maximum 40)'],
+    });
+
+    const tooManyPoints = {
+      ...empty,
+      items: [{
+        id: 'many-points',
+        kind: 'connector',
+        points: Array.from({ length: 385 }, (_, index) => [index, 10] as [number, number]),
+        start: null,
+        end: null,
+        startArrowhead: null,
+        endArrowhead: 'arrow',
+        sourceIds: ['s1'],
+      }],
+    };
+    expect(validateInterpretResponse(tooManyPoints, request)).toMatchObject({
+      ok: false,
+      errors: ['plan contains too many points (maximum 384)'],
+    });
+
+    const allDropped = {
+      ...empty,
+      items: [{
+        id: 'bad',
+        kind: 'not-a-kind',
+        sourceIds: ['s1'],
+      }],
+    };
+    expect(validateInterpretResponse(allDropped, request)).toMatchObject({
+      ok: false,
+      errors: ['items[0] (bad): items[0].kind is invalid'],
+    });
+  });
+
+  it('salvages 500 deterministic mutations without throwing or drifting on revalidation', () => {
+    const request = aliasedRequest();
+    const random = mulberry32(0x10_19_2026);
+    const variants = Array.from({ length: 500 }, (_unused, index) => {
+      const value = structuredClone(mutationAnswer()) as Record<string, any>;
+      const items = value.items as Record<string, any>[];
+      const itemIndex = Math.floor(random() * items.length);
+      const item = items[itemIndex]!;
+      const shape = items[0]!;
+      const secondShape = items[1]!;
+      const connector = items[2]!;
+      const text = items[3]!;
+      switch (index % 14) {
+        case 0:
+          secondShape.kind = 'unknown';
+          break;
+        case 1:
+          shape.x = 100_000;
+          break;
+        case 2:
+          shape.x = Number.NaN;
+          break;
+        case 3:
+          shape.x = 'not-a-number';
+          break;
+        case 4:
+          item.sourceIds = ['invented'];
+          break;
+        case 5:
+          shape.sourceIds = ['s1', 's1'];
+          break;
+        case 6:
+          secondShape.id = 'shape-a';
+          break;
+        case 7:
+          connector.points = Array.from(
+            { length: INTERPRET_PLAN_LIMITS.maxPointsPerItem + 1 },
+            (_point, pointIndex) => [pointIndex, 25],
+          );
+          break;
+        case 8:
+          connector.start = { itemId: 'missing' };
+          shape.children = ['shape-a', 42, 'missing'];
+          break;
+        case 9:
+          connector.reason = 'r'.repeat(INTERPRET_PLAN_LIMITS.maxReasonLength + 1);
+          connector.label = 'l'.repeat(INTERPRET_PLAN_LIMITS.maxTextLength + 1);
+          break;
+        case 10:
+          delete text.sourceIds;
+          break;
+        case 11:
+          item.extra = { ignored: true };
+          break;
+        case 12:
+          value.unresolved = 'not-an-array';
+          break;
+        default:
+          delete connector.points;
+          break;
+      }
+      if (random() < 0.35) {
+        item.confidence = 'uncertain';
+      }
+      return value;
+    });
+
+    let accepted = 0;
+    for (const variant of variants) {
+      let result: ReturnType<typeof validateInterpretResponse> | undefined;
+      expect(() => {
+        result = validateInterpretResponse(variant, request);
+      }).not.toThrow();
+      if (!result || !result.ok) {
+        continue;
+      }
+      accepted += 1;
+      const safety = validateSuggestionPlan(result.plan, {
+        maxItems: INTERPRET_PLAN_LIMITS.maxItems,
+        maxPoints: INTERPRET_PLAN_LIMITS.maxPoints,
+        maxStringLength: INTERPRET_PLAN_LIMITS.maxTextLength,
+      });
+      expect(safety.ok).toBe(true);
+      expect(result.plan.items.length + result.dropped.length)
+        .toBe(variant.items.length);
+      const roundTrip = validateInterpretResponse(
+        JSON.parse(JSON.stringify(result.plan)),
+        request,
+      );
+      expect(roundTrip).toEqual({
+        ok: true,
+        plan: result.plan,
+        dropped: [],
+        repairs: [],
+      });
+    }
+    expect(accepted).toBeGreaterThan(0);
   });
 
   it('keeps a maximal plan within the output budget', () => {

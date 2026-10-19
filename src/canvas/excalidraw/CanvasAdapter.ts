@@ -15,8 +15,8 @@ import type { ExcalidrawElementSkeleton } from '@excalidraw/excalidraw/data/tran
 import {
   acceptedSuggestionItems,
   getPlanSourceIds,
+  formatSuggestionPreviewStatus,
   hitTestPreviewItems,
-  summarizeSuggestionPlan,
   type ConnectorSuggestionItem,
   type NodeRef,
   type ShapeSuggestionItem,
@@ -78,6 +78,7 @@ export type ModelPlanShowResult =
 
 export type ModelPlanOptions = {
   label?: string;
+  skipped?: number;
 };
 
 type PendingSuggestion = {
@@ -86,6 +87,7 @@ type PendingSuggestion = {
   sourceSnapshots: Map<string, string>;
   operation?: SuggestionOperation;
   previewLabel?: string;
+  previewSkipped?: number;
 };
 
 type ExistingBinding = {
@@ -425,6 +427,7 @@ export class CanvasAdapter {
     };
     return {
       input,
+      nativeNodes: diagramInput.nativeNodes,
       snapshot: this.captureModelSnapshot(currentElements),
     };
   }
@@ -455,9 +458,15 @@ export class CanvasAdapter {
     if (plan.items.length === 0) {
       return { shown: false, reason: 'empty' };
     }
-    this.showPlan(plan, currentElements, undefined, options.label);
+    this.showPlan(
+      plan,
+      currentElements,
+      undefined,
+      options.label,
+      options.skipped,
+    );
     this.setStatus(
-      this.formatDiagramStatus(plan, new Set(), options.label),
+      this.formatDiagramStatus(plan, new Set(), options.label, options.skipped),
       'ready',
     );
     return { shown: true };
@@ -475,6 +484,7 @@ export class CanvasAdapter {
     currentElements: readonly OrderedExcalidrawElement[],
     operation?: SuggestionOperation,
     previewLabel?: string,
+    previewSkipped = 0,
   ) {
     this.pending = {
       plan,
@@ -482,6 +492,7 @@ export class CanvasAdapter {
       sourceSnapshots: this.captureSourceSnapshots(plan, currentElements),
       operation,
       previewLabel,
+      previewSkipped,
     };
 
     const converted = this.convertPlan(plan, true, currentElements);
@@ -861,7 +872,12 @@ export class CanvasAdapter {
     });
     this.setStatus(
       this.pending.plan.lens === 'diagram'
-        ? this.formatDiagramStatus(this.pending.plan, rejected, this.pending.previewLabel)
+        ? this.formatDiagramStatus(
+          this.pending.plan,
+          rejected,
+          this.pending.previewLabel,
+          this.pending.previewSkipped,
+        )
         : `Suggestion ready — ${rejected.size} item${rejected.size === 1 ? '' : 's'} rejected. Enter applies the rest. Esc dismisses.`,
       'ready',
     );
@@ -871,9 +887,9 @@ export class CanvasAdapter {
     plan: SuggestionPlan,
     rejected: ReadonlySet<string>,
     label = 'Diagram',
+    skipped = 0,
   ): string {
-    const acceptedCount = plan.items.filter((item) => !rejected.has(item.id)).length;
-    return `${label}: ${summarizeSuggestionPlan(plan, rejected)}. Click an item to reject or restore it. Enter applies ${acceptedCount} of ${plan.items.length}. Esc dismisses.`;
+    return formatSuggestionPreviewStatus(plan, rejected, label, skipped);
   }
 
   private sourcesStillMatch(

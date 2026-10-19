@@ -1,5 +1,6 @@
 import type { Point } from '../../core/geometry/drawing-improvement-engine';
 import type { InterpretSceneInput } from '../../perception/interpret';
+import type { T0NativeNode } from '../../perception/t0';
 
 export type { Point };
 
@@ -109,5 +110,6 @@ export type ModelSceneSnapshot = {
 
 export type ModelInput = {
   input: InterpretSceneInput;
+  nativeNodes?: T0NativeNode[];
   snapshot: ModelSceneSnapshot;
 };

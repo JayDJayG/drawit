@@ -287,6 +287,19 @@ export const summarizeSuggestionPlan = (
   return parts.join(', ');
 };
 
+export const formatSuggestionPreviewStatus = (
+  plan: SuggestionPlan,
+  rejectedItemIds: ReadonlySet<string> = new Set(),
+  label = 'Diagram',
+  skipped = 0,
+): string => {
+  const acceptedCount = plan.items.filter((item) => !rejectedItemIds.has(item.id)).length;
+  const skippedText = skipped > 0
+    ? ` (${skipped} suggestion${skipped === 1 ? '' : 's'} skipped)`
+    : '';
+  return `${label}: ${summarizeSuggestionPlan(plan, rejectedItemIds)}${skippedText}. Click an item to reject or restore it. Enter applies ${acceptedCount} of ${plan.items.length}. Esc dismisses.`;
+};
+
 export const getPlanSourceIds = (plan: SuggestionPlan): string[] => {
   const ids = new Set<string>();
   for (const item of plan.items) {

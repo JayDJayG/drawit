@@ -5,6 +5,14 @@ import {
   distanceToBounds,
   pointInBounds,
 } from '../../core/structure';
+import {
+  distanceToShapeOutline,
+  maxBindingGap,
+  projectToShapeOutline,
+  tidyConnectorAxis,
+  tidyConnectorPath,
+} from '../../core/geometry';
+import type { ConnectorBoundNode } from '../../core/geometry';
 import type {
   NodeRef,
   ShapeSuggestionItem,
@@ -169,11 +177,11 @@ export const recognizeDiagram = (input: T0DiagramInput): SuggestionPlan => {
         end: nearestInlineTip(stroke.points, false, bindingNodeGeometry),
       },
     );
-    const connectorPoints = ensureEndpointSegmentLength(
+    const legacyPoints = ensureEndpointSegmentLength(
       simplifyConnectorPoints(normalizedInline.points),
       normalizedInline,
     );
-    if (connectorPoints.length < 2) {
+    if (legacyPoints.length < 2) {
       continue;
     }
 
@@ -182,7 +190,7 @@ export const recognizeDiagram = (input: T0DiagramInput): SuggestionPlan => {
       index,
       strokes,
       usedStrokeIndexes,
-      connectorPoints,
+      legacyPoints,
       normalizedInline,
       connectorCandidateIndexes,
     );
@@ -196,29 +204,44 @@ export const recognizeDiagram = (input: T0DiagramInput): SuggestionPlan => {
     }
 
     const start = snapEndpoint(
-      connectorPoints[0],
-      connectorPoints[1],
+      legacyPoints[0],
+      legacyPoints[1],
       bindingNodeGeometry,
     );
     const end = snapEndpoint(
-      connectorPoints[connectorPoints.length - 1],
-      connectorPoints[connectorPoints.length - 2],
+      legacyPoints[legacyPoints.length - 1],
+      legacyPoints[legacyPoints.length - 2],
       bindingNodeGeometry,
     );
-    const fittedPoints = connectorPoints.map((point, pointIndex) => {
+    const outputPoints = ensureEndpointSegmentLength(
+      tidyConnectorPath(normalizedInline.points),
+      normalizedInline,
+    );
+    if (outputPoints.length < 2) {
+      continue;
+    }
+    const fittedPoints = outputPoints.map((point, pointIndex) => {
       if (pointIndex === 0 && start) {
         return start.point;
       }
-      if (pointIndex === connectorPoints.length - 1 && end) {
+      if (pointIndex === outputPoints.length - 1 && end) {
         return end.point;
       }
       return point;
     });
+    const axisPoints = tidyConnectorAxis(
+      fittedPoints,
+      normalizedInline.points,
+      {
+        start: boundNodeGeometry(start?.ref, bindingNodeGeometry),
+        end: boundNodeGeometry(end?.ref, bindingNodeGeometry),
+      },
+    );
     const item = {
       id: makeItemId('connector', sourceIds),
       kind: 'connector' as const,
       sourceIds,
-      points: fittedPoints.map((point) => [point.x, point.y] as [number, number]),
+      points: axisPoints.map((point) => [point.x, point.y] as [number, number]),
       start: start?.ref ?? null,
       end: end?.ref ?? null,
       startArrowhead: (normalizedInline.start ? 'arrow' : nearby.some((arrow) => arrow.end === 'start') ? 'arrow' : null) as 'arrow' | null,
@@ -227,7 +250,7 @@ export const recognizeDiagram = (input: T0DiagramInput): SuggestionPlan => {
     };
     connectors.push({
       item,
-      points: connectorPoints,
+      points: legacyPoints,
       strokeIndexes: [index, ...nearby.map((arrow) => arrow.index)],
     });
     usedStrokeIndexes.add(index);
@@ -1697,14 +1720,16 @@ const inlineTipScore = (
     + (1 - alignment) * Math.max(8, Math.min(bounds.width, bounds.height) * 0.2);
 };
 
-const snapEndpoint = (
+export type T0BindingNode = {
+  ref: NodeRef;
+  kind: ShapeSuggestionItem['shape'];
+  bounds: SuggestionBounds;
+};
+
+export const snapEndpoint = (
   point: SuggestionPoint | undefined,
   neighbor: SuggestionPoint | undefined,
-  nodes: readonly {
-    ref: NodeRef;
-    kind: ShapeSuggestionItem['shape'];
-    bounds: SuggestionBounds;
-  }[],
+  nodes: readonly T0BindingNode[],
 ): { ref: NodeRef; point: SuggestionPoint } | undefined => {
   if (!point) {
     return undefined;
@@ -1737,57 +1762,25 @@ const snapEndpoint = (
   };
 };
 
-const maxBindingGap = (
-  kind: ShapeSuggestionItem['shape'],
-  bounds: SuggestionBounds,
-): number => {
-  const shapeRatio = kind === 'diamond' ? 1 / Math.sqrt(2) : 1;
-  return Math.max(
-    16,
-    Math.min(0.25 * shapeRatio * Math.min(bounds.width, bounds.height), 32),
-  );
+const boundNodeGeometry = (
+  ref: NodeRef | undefined,
+  nodes: readonly T0BindingNode[],
+): ConnectorBoundNode | undefined => {
+  if (!ref) {
+    return undefined;
+  }
+  const node = nodes.find((candidate) => sameNodeRef(candidate.ref, ref));
+  return node
+    ? { kind: node.kind, bounds: node.bounds }
+    : undefined;
 };
 
-const projectToShapeOutline = (
-  point: SuggestionPoint,
-  neighbor: SuggestionPoint | undefined,
-  kind: ShapeSuggestionItem['shape'],
-  bounds: SuggestionBounds,
-): SuggestionPoint => {
-  const center = boundsCenter(bounds);
-  let dx = point.x - center.x;
-  let dy = point.y - center.y;
-  if (Math.hypot(dx, dy) < 1 && neighbor) {
-    dx = neighbor.x - center.x;
-    dy = neighbor.y - center.y;
-  }
-  if (dx === 0 && dy === 0) {
-    return { x: center.x, y: bounds.y };
-  }
-  const halfWidth = Math.max(0.5, bounds.width / 2);
-  const halfHeight = Math.max(0.5, bounds.height / 2);
-  let scale: number;
-  if (kind === 'ellipse') {
-    scale = 1 / Math.sqrt(
-      (dx / halfWidth) ** 2 + (dy / halfHeight) ** 2,
-    );
-  } else if (kind === 'diamond') {
-    scale = 1 / (Math.abs(dx) / halfWidth + Math.abs(dy) / halfHeight);
-  } else if (kind === 'roundedRectangle') {
-    scale = roundedRectangleRayScale(dx, dy, halfWidth, halfHeight);
-  } else {
-    scale = Math.min(
-      Math.abs(dx) > 0 ? halfWidth / Math.abs(dx) : Number.POSITIVE_INFINITY,
-      Math.abs(dy) > 0 ? halfHeight / Math.abs(dy) : Number.POSITIVE_INFINITY,
-    );
-  }
-  if (!Number.isFinite(scale) || scale <= 0) {
-    return { x: center.x, y: bounds.y };
-  }
-  return {
-    x: center.x + dx * scale,
-    y: center.y + dy * scale,
-  };
+const sameNodeRef = (first: NodeRef, second: NodeRef): boolean => {
+  return 'itemId' in first && 'itemId' in second
+    ? first.itemId === second.itemId
+    : 'elementId' in first && 'elementId' in second
+      ? first.elementId === second.elementId
+      : false;
 };
 
 const isConnectorCandidate = (
@@ -2570,46 +2563,6 @@ const takeByDistance = (
     }
   }
   return result;
-};
-
-const roundedRectangleRayScale = (
-  dx: number,
-  dy: number,
-  halfWidth: number,
-  halfHeight: number,
-): number => {
-  const radius = Math.min(18, halfWidth * 0.3, halfHeight * 0.45);
-  const rectangleScale = Math.min(
-    Math.abs(dx) > 0 ? halfWidth / Math.abs(dx) : Number.POSITIVE_INFINITY,
-    Math.abs(dy) > 0 ? halfHeight / Math.abs(dy) : Number.POSITIVE_INFINITY,
-  );
-  const rectanglePoint = { x: dx * rectangleScale, y: dy * rectangleScale };
-  if (
-    Math.abs(rectanglePoint.x) <= halfWidth - radius
-    || Math.abs(rectanglePoint.y) <= halfHeight - radius
-  ) {
-    return rectangleScale;
-  }
-  const cornerX = Math.sign(dx) * (halfWidth - radius);
-  const cornerY = Math.sign(dy) * (halfHeight - radius);
-  const ax = dx * dx + dy * dy;
-  const bx = -2 * (dx * cornerX + dy * cornerY);
-  const cx = cornerX * cornerX + cornerY * cornerY - radius * radius;
-  const discriminant = bx * bx - 4 * ax * cx;
-  if (discriminant <= 0 || ax === 0) {
-    return rectangleScale;
-  }
-  const root = (-bx + Math.sqrt(discriminant)) / (2 * ax);
-  return root > 0 ? root : rectangleScale;
-};
-
-const distanceToShapeOutline = (
-  point: SuggestionPoint,
-  kind: ShapeSuggestionItem['shape'],
-  bounds: SuggestionBounds,
-): number => {
-  const projected = projectToShapeOutline(point, undefined, kind, bounds);
-  return distance(point, projected);
 };
 
 const getBounds = (points: readonly SuggestionPoint[]): SuggestionBounds => {

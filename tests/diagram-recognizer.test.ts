@@ -604,4 +604,139 @@ describe('diagram recognizer', () => {
     expect(plan.items.every((item) => !item.sourceIds.includes('native-label'))).toBe(true);
     expect(plan.items.some((item) => item.kind === 'connector' && item.label === 'Keep me')).toBe(false);
   });
+
+  it('tidies and binds the captured horizontal arrow to native nodes', () => {
+    const stroke = {
+      id: 's1',
+      points: [
+        [824.94, 993.67], [829.39, 993.67], [836.06, 993.67], [849.39, 993.67],
+        [866.06, 993.67], [883.83, 993.67], [896.06, 993.67], [897.17, 993.67],
+        [908.28, 991.44], [913.83, 990.33], [917.17, 990.33], [919.39, 990.33],
+        [923.83, 992.56], [926.06, 993.67], [927.17, 994.78], [928.28, 994.78],
+        [929.39, 994.78], [930.5, 994.78], [931.61, 994.78], [934.94, 994.78],
+        [939.39, 994.78], [943.83, 994.78], [947.17, 995.89], [949.39, 995.89],
+        [950.5, 995.89], [951.61, 995.89], [952.72, 993.67], [952.72, 992.56],
+        [953.83, 992.56], [954.94, 991.44], [954.94, 990.33], [953.83, 992.56],
+        [950.5, 995.89], [944.94, 1001.44], [944.94, 1004.78], [943.83, 1005.89],
+        [943.83, 1007], [943.83, 1008.11], [943.83, 1009.22], [948.28, 1009.22],
+        [954.94, 1009.22], [960.5, 1009.22], [966.06, 1009.22], [969.39, 1008.11],
+        [970.5, 1008.11], [970.5, 1007], [971.61, 1007], [974.94, 1007],
+        [977.17, 1005.89], [979.39, 1004.78], [981.61, 1004.78], [982.72, 1004.78],
+        [982.72, 1003.67], [983.83, 1003.67], [984.94, 1003.67], [986.06, 1002.56],
+        [986.06, 1001.44], [984.94, 1001.44], [979.39, 998.11], [973.83, 998.11],
+        [969.39, 995.89], [964.94, 995.89], [960.5, 993.67], [958.28, 992.56],
+        [957.17, 992.56], [957.17, 992.56],
+      ].map(([x, y]) => ({ x, y })),
+    };
+    const nativeNodes = [
+      {
+        id: 'native-shape-1',
+        kind: 'rectangle' as const,
+        bounds: { x: 550, y: 664, width: 241, height: 115 },
+      },
+      {
+        id: 'native-shape-2',
+        kind: 'ellipse' as const,
+        bounds: { x: 620, y: 910, width: 204, height: 165 },
+      },
+      {
+        id: 'native-shape-3',
+        kind: 'diamond' as const,
+        bounds: { x: 982, y: 905, width: 200, height: 190 },
+      },
+    ];
+    const plan = recognizeDiagram({
+      strokes: [stroke],
+      texts: [],
+      nativeNodes,
+    });
+    const edge = plan.items.find((item) => item.kind === 'connector');
+    expect(edge).toMatchObject({
+      sourceIds: ['s1'],
+      start: { elementId: 'native-shape-2' },
+      end: { elementId: 'native-shape-3' },
+      startArrowhead: null,
+      endArrowhead: 'arrow',
+    });
+    if (edge?.kind !== 'connector') {
+      throw new Error('expected a native-bound connector');
+    }
+    expect(edge.points).toHaveLength(2);
+    expect(edge.points[0]?.[0]).toBeGreaterThanOrEqual(823);
+    expect(edge.points[0]?.[0]).toBeLessThanOrEqual(827);
+    expect(edge.points[1]?.[0]).toBeGreaterThanOrEqual(983);
+    expect(edge.points[1]?.[0]).toBeLessThanOrEqual(990);
+    expect(edge.points[0]?.[1]).toBeGreaterThanOrEqual(993);
+    expect(edge.points[0]?.[1]).toBeLessThanOrEqual(997);
+    expect(edge.points[1]?.[1]).toBe(edge.points[0]?.[1]);
+  });
+
+  it('leaves the captured arrow unresolved without native nodes', () => {
+    const plan = recognizeDiagram({
+      strokes: [{
+        id: 's1',
+        points: [{ x: 824.94, y: 993.67 }, { x: 957.17, y: 992.56 }],
+      }],
+      texts: [],
+    });
+    expect(plan.items.some((item) => item.kind === 'connector')).toBe(false);
+    expect(plan.unresolved).toMatchObject([{ sourceIds: ['s1'] }]);
+  });
+
+  it('keeps a separate start arrowhead on a curved shaft', () => {
+    const shaft = [
+      { x: 387.429, y: 265.179 },
+      { x: 392.722, y: 264.697 },
+      { x: 397.907, y: 265.985 },
+      { x: 402.515, y: 265.248 },
+      { x: 407.457, y: 265.179 },
+      { x: 407.954, y: 268.592 },
+      { x: 407.92, y: 271.616 },
+      { x: 407.194, y: 274.287 },
+      { x: 407.7, y: 300 },
+      { x: 407.7, y: 350 },
+      { x: 407.7, y: 400 },
+      { x: 407.7, y: 450 },
+      { x: 407.7, y: 500 },
+      { x: 407.7, y: 550 },
+      { x: 407.7, y: 600 },
+      { x: 407.7, y: 650 },
+      { x: 407.7, y: 700 },
+      { x: 407.7, y: 730 },
+      { x: 400, y: 750 },
+      { x: 390, y: 770 },
+      { x: 374.201, y: 782.441 },
+    ];
+    const plan = recognizeDiagram({
+      strokes: [{
+        id: 'curved-shaft',
+        points: shaft,
+      }, {
+        id: 'curved-shaft-start-arrow',
+        points: [
+          { x: 384.088, y: 265.483 },
+          { x: 409.002, y: 284.673 },
+          { x: 405.127, y: 242.109 },
+        ],
+      }],
+      texts: [],
+      nativeNodes: [
+        {
+          id: 'source',
+          kind: 'roundedRectangle',
+          bounds: { x: 373.758, y: 230.61, width: 148.554, height: 82.267 },
+        },
+        {
+          id: 'target',
+          kind: 'diamond',
+          bounds: { x: 372.548, y: 730.698, width: 135.038, height: 82.075 },
+        },
+      ],
+    });
+    const edge = plan.items.find((item) => item.kind === 'connector');
+    expect(edge).toMatchObject({
+      startArrowhead: 'arrow',
+      sourceIds: expect.arrayContaining(['curved-shaft-start-arrow']),
+    });
+  });
 });

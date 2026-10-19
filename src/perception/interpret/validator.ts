@@ -11,7 +11,12 @@ import {
 import type { InterpretRequest } from './types';
 
 export type InterpretValidationResult =
-  | { ok: true; plan: SuggestionPlan }
+  | {
+      ok: true;
+      plan: SuggestionPlan;
+      dropped: string[];
+      repairs: string[];
+    }
   | { ok: false; errors: string[] };
 
 export const INTERPRET_PLAN_LIMITS = {
@@ -25,6 +30,12 @@ export const INTERPRET_PLAN_LIMITS = {
 } as const;
 
 const COORDINATE_MARGIN = 1000;
+
+type ParsedItem = {
+  item: SuggestionItem;
+  path: string;
+  id: string;
+};
 
 export const validateInterpretResponse = (
   raw: unknown,
@@ -41,35 +52,66 @@ export const validateInterpretResponse = (
       return { ok: false, errors: ['response was not valid JSON'] };
     }
   }
-
-  const base = validateSuggestionPlan(value, {
-    maxItems: INTERPRET_PLAN_LIMITS.maxItems,
-    maxPoints: INTERPRET_PLAN_LIMITS.maxPoints,
-    maxStringLength: INTERPRET_PLAN_LIMITS.maxTextLength,
-  });
-  if (!base.ok) {
-    return base;
-  }
-
   if (!isRecord(value)) {
-    return { ok: false, errors: ['response must be an object'] };
+    return { ok: false, errors: ['plan must be an object'] };
   }
 
-  const errors: string[] = [];
+  const envelopeErrors: string[] = [];
+  const repairs: string[] = [];
+  if (!Object.hasOwn(value, 'version')) {
+    repairs.push('version defaulted to 1');
+  } else if (value.version !== 1) {
+    envelopeErrors.push('plan version must be 1');
+  }
+  if (envelopeErrors.length > 0) {
+    return { ok: false, errors: envelopeErrors };
+  }
   if (value.tier !== 't2') {
-    errors.push('response tier must be t2');
+    repairs.push('tier normalized to t2');
   }
   if (value.lens !== request.lens) {
-    errors.push('response lens does not match the request');
+    repairs.push('lens normalized to the request lens');
   }
 
-  const items = Array.isArray(value.items) ? value.items : [];
-  const unresolved = Array.isArray(value.unresolved) ? value.unresolved : [];
-  if (items.length > INTERPRET_PLAN_LIMITS.maxItems) {
-    errors.push(`response contains too many items (maximum ${INTERPRET_PLAN_LIMITS.maxItems})`);
+  if (!Array.isArray(value.items)) {
+    return { ok: false, errors: ['plan items must be an array'] };
   }
-  if (unresolved.length > INTERPRET_PLAN_LIMITS.maxUnresolved) {
-    errors.push(`response contains too many unresolved entries (maximum ${INTERPRET_PLAN_LIMITS.maxUnresolved})`);
+  const rawItems = value.items;
+  if (rawItems.length > INTERPRET_PLAN_LIMITS.maxItems) {
+    return {
+      ok: false,
+      errors: [`plan contains too many items (maximum ${INTERPRET_PLAN_LIMITS.maxItems})`],
+    };
+  }
+  const rawPointCount = rawItems.reduce((total, rawItem) => {
+    if (
+      isRecord(rawItem)
+      && (rawItem.kind === 'connector' || rawItem.kind === 'stroke')
+      && Array.isArray(rawItem.points)
+    ) {
+      return total + rawItem.points.length;
+    }
+    return total;
+  }, 0);
+  if (rawPointCount > INTERPRET_PLAN_LIMITS.maxPoints) {
+    return {
+      ok: false,
+      errors: [`plan contains too many points (maximum ${INTERPRET_PLAN_LIMITS.maxPoints})`],
+    };
+  }
+
+  const unresolvedWasArray = Array.isArray(value.unresolved);
+  if (!unresolvedWasArray) {
+    repairs.push('unresolved normalized to an empty array');
+  }
+  const rawUnresolved = unresolvedWasArray
+    ? value.unresolved as unknown[]
+    : [];
+  const unresolved = rawUnresolved.slice(0, INTERPRET_PLAN_LIMITS.maxUnresolved);
+  if (rawUnresolved.length > INTERPRET_PLAN_LIMITS.maxUnresolved) {
+    repairs.push(
+      `unresolved truncated to ${INTERPRET_PLAN_LIMITS.maxUnresolved} entries`,
+    );
   }
 
   const allowedSourceIds = new Set([
@@ -77,45 +119,38 @@ export const validateInterpretResponse = (
     ...request.texts.map((text) => text.id),
   ]);
   const bounds = getRequestBounds(request);
-  const itemIds = new Set<string>();
-  const shapeIds = new Set<string>();
-  const sourceOwners = new Map<string, string>();
-  const parsedItems: SuggestionItem[] = [];
-  let pointCount = 0;
+  const seenItemIds = new Set<string>();
+  const candidates: ParsedItem[] = [];
+  const dropped: string[] = [];
 
-  for (const [index, rawItem] of items.entries()) {
-    const itemPath = `items[${index}]`;
+  rawItems.forEach((rawItem, index) => {
+    const path = `items[${index}]`;
     if (!isRecord(rawItem)) {
-      errors.push(`${itemPath} must be an object`);
-      continue;
+      dropped.push(formatDropped(path, undefined, `${path} must be an object`));
+      return;
     }
 
-    const itemId = readId(rawItem.id, `${itemPath}.id`, errors);
+    const itemId = readId(rawItem.id, `${path}.id`);
+    if (itemId && seenItemIds.has(itemId)) {
+      dropped.push(formatDropped(path, itemId, `duplicate item id "${itemId}"`));
+      return;
+    }
     if (itemId) {
-      if (itemIds.has(itemId)) {
-        errors.push(`duplicate item id "${itemId}"`);
-      }
-      itemIds.add(itemId);
-      if (rawItem.kind === 'shape') {
-        shapeIds.add(itemId);
-      }
+      seenItemIds.add(itemId);
     }
 
+    const errors: string[] = [];
+    const itemRepairs: string[] = [];
+    if (!itemId) {
+      errors.push(idError(rawItem.id, `${path}.id`));
+    }
     const sourceIds = readSourceIds(
       rawItem.sourceIds,
-      itemPath,
+      path,
       allowedSourceIds,
-      sourceOwners,
       errors,
     );
-    validateOptionalConfidence(rawItem.confidence, `${itemPath}.confidence`, errors);
-    const reason = readOptionalString(
-      rawItem.reason,
-      `${itemPath}.reason`,
-      INTERPRET_PLAN_LIMITS.maxReasonLength,
-      errors,
-    );
-
+    const metadata = readMetadata(rawItem, path, itemRepairs);
     let item: SuggestionItem | undefined;
     switch (rawItem.kind) {
       case 'shape':
@@ -123,10 +158,11 @@ export const validateInterpretResponse = (
           rawItem,
           itemId,
           sourceIds,
-          reason,
+          metadata,
           bounds,
-          `${itemPath}`,
+          path,
           errors,
+          itemRepairs,
         );
         break;
       case 'connector':
@@ -134,101 +170,170 @@ export const validateInterpretResponse = (
           rawItem,
           itemId,
           sourceIds,
-          reason,
+          metadata,
           bounds,
-          `${itemPath}`,
+          path,
           errors,
+          itemRepairs,
         );
-        pointCount += Array.isArray(rawItem.points) ? rawItem.points.length : 0;
         break;
       case 'stroke':
         item = parseStroke(
           rawItem,
           itemId,
           sourceIds,
-          reason,
+          metadata,
           bounds,
-          `${itemPath}`,
+          path,
           errors,
+          itemRepairs,
         );
-        pointCount += Array.isArray(rawItem.points) ? rawItem.points.length : 0;
         break;
       case 'text':
         item = parseText(
           rawItem,
           itemId,
           sourceIds,
-          reason,
+          metadata,
           bounds,
-          `${itemPath}`,
+          path,
           errors,
         );
         break;
       default:
-        errors.push(`${itemPath}.kind is invalid`);
+        errors.push(`${path}.kind is invalid`);
     }
-    if (item) {
-      parsedItems.push(withOptionalMetadata(item, rawItem.confidence, reason));
-    }
-  }
 
-  const parsedUnresolved: SuggestionPlan['unresolved'] = [];
-  for (const [index, rawEntry] of unresolved.entries()) {
-    const entryPath = `unresolved[${index}]`;
-    if (!isRecord(rawEntry)) {
-      errors.push(`${entryPath} must be an object`);
+    if (!item || errors.length > 0) {
+      dropped.push(formatDropped(path, itemId, errors[0] ?? `${path}.item is invalid`));
+      return;
+    }
+    repairs.push(...itemRepairs);
+    candidates.push({ item, path, id: itemId! });
+  });
+
+  const sourceOwners = new Map<string, string>();
+  const kept: ParsedItem[] = [];
+  for (const candidate of candidates) {
+    const conflict = candidate.item.sourceIds.find((sourceId) => sourceOwners.has(sourceId));
+    if (conflict) {
+      const owner = sourceOwners.get(conflict)!;
+      dropped.push(formatDropped(
+        candidate.path,
+        candidate.id,
+        `source "${conflict}" belongs to both "${owner}" and "${candidate.path}"`,
+      ));
       continue;
     }
-    const sourceIds = readSourceIds(
-      rawEntry.sourceIds,
-      entryPath,
-      allowedSourceIds,
-      sourceOwners,
-      errors,
-    );
-    const reason = readRequiredString(
-      rawEntry.reason,
-      `${entryPath}.reason`,
-      INTERPRET_PLAN_LIMITS.maxReasonLength,
-      errors,
-    );
-    if (sourceIds.length > 0 && reason) {
-      parsedUnresolved.push({ sourceIds, reason });
-    }
+    candidate.item.sourceIds.forEach((sourceId) => {
+      sourceOwners.set(sourceId, candidate.path);
+    });
+    kept.push(candidate);
   }
 
-  for (const item of parsedItems) {
-    if (item.kind === 'shape' && item.children) {
-      for (const childId of item.children) {
-        if (!itemIds.has(childId) || !shapeIds.has(childId)) {
-          errors.push(`shape "${item.id}" references unknown child "${childId}"`);
-        }
-      }
-    }
+  if (rawItems.length > 0 && kept.length === 0) {
+    return { ok: false, errors: dropped };
+  }
+
+  const knownItemIds = new Set(kept.map((candidate) => candidate.id));
+  const shapeIds = new Set(
+    kept
+      .filter((candidate) => candidate.item.kind === 'shape')
+      .map((candidate) => candidate.id),
+  );
+  const cleanItems = kept.map((candidate) => {
+    const item = candidate.item;
     if (item.kind === 'connector') {
-      validateInterpretRef(item.start, itemIds, shapeIds, `${item.id}.start`, errors);
-      validateInterpretRef(item.end, itemIds, shapeIds, `${item.id}.end`, errors);
+      return {
+        ...item,
+        start: cleanNodeRef(item.start, knownItemIds, shapeIds, `${candidate.path}.start`, repairs),
+        end: cleanNodeRef(item.end, knownItemIds, shapeIds, `${candidate.path}.end`, repairs),
+      };
     }
+    if (item.kind === 'shape' && item.children) {
+      const children = item.children.filter((childId, childIndex) => {
+        if (shapeIds.has(childId)) {
+          return true;
+        }
+        repairs.push(
+          `${candidate.path}.children[${childIndex}] removed because it is not a kept shape`,
+        );
+        return false;
+      });
+      return { ...item, children };
+    }
+    return item;
+  });
+
+  const cleanUnresolved: SuggestionPlan['unresolved'] = [];
+  for (const [index, rawEntry] of unresolved.entries()) {
+    const path = `unresolved[${index}]`;
+    if (!isRecord(rawEntry)) {
+      repairs.push(`${path} dropped because it is not an object`);
+      continue;
+    }
+    if (
+      typeof rawEntry.reason !== 'string'
+      || rawEntry.reason.length === 0
+      || rawEntry.reason.length > INTERPRET_PLAN_LIMITS.maxReasonLength
+    ) {
+      repairs.push(`${path} dropped because its reason is invalid`);
+      continue;
+    }
+    if (!Array.isArray(rawEntry.sourceIds) || rawEntry.sourceIds.length === 0) {
+      repairs.push(`${path} dropped because sourceIds is not non-empty`);
+      continue;
+    }
+    const entrySources: string[] = [];
+    for (const [sourceIndex, sourceValue] of rawEntry.sourceIds.entries()) {
+      const sourceId = readId(sourceValue, `${path}.sourceIds[${sourceIndex}]`);
+      if (!sourceId) {
+        repairs.push(`${path}.sourceIds[${sourceIndex}] removed because it is invalid`);
+        continue;
+      }
+      if (!allowedSourceIds.has(sourceId)) {
+        repairs.push(`${path}.sourceIds[${sourceIndex}] removed because the source is unknown`);
+        continue;
+      }
+      if (sourceOwners.has(sourceId)) {
+        repairs.push(`${path}.sourceIds[${sourceIndex}] removed because the source is already owned`);
+        continue;
+      }
+      if (entrySources.includes(sourceId)) {
+        repairs.push(`${path}.sourceIds[${sourceIndex}] removed because it is duplicated`);
+        continue;
+      }
+      entrySources.push(sourceId);
+    }
+    if (entrySources.length === 0) {
+      repairs.push(`${path} dropped because no sourceIds remain`);
+      continue;
+    }
+    entrySources.forEach((sourceId) => {
+      sourceOwners.set(sourceId, path);
+    });
+    cleanUnresolved.push({
+      sourceIds: entrySources,
+      reason: rawEntry.reason,
+    });
   }
 
-  if (pointCount > INTERPRET_PLAN_LIMITS.maxPoints) {
-    errors.push(`response contains too many points (maximum ${INTERPRET_PLAN_LIMITS.maxPoints})`);
-  }
-
-  if (errors.length > 0) {
-    return { ok: false, errors };
-  }
-
-  return {
-    ok: true,
-    plan: {
-      version: 1,
-      lens: request.lens,
-      tier: 't2',
-      items: parsedItems,
-      unresolved: parsedUnresolved,
-    },
+  const plan: SuggestionPlan = {
+    version: 1,
+    lens: request.lens,
+    tier: 't2',
+    items: cleanItems,
+    unresolved: cleanUnresolved,
   };
+  const safety = validateSuggestionPlan(plan, {
+    maxItems: INTERPRET_PLAN_LIMITS.maxItems,
+    maxPoints: INTERPRET_PLAN_LIMITS.maxPoints,
+    maxStringLength: INTERPRET_PLAN_LIMITS.maxTextLength,
+  });
+  if (!safety.ok) {
+    return safety;
+  }
+  return { ok: true, plan, dropped, repairs };
 };
 
 export const getRequestBounds = (request: InterpretRequest) => {
@@ -264,17 +369,17 @@ const parseShape = (
   raw: Record<string, unknown>,
   id: string | undefined,
   sourceIds: string[],
-  reason: string | undefined,
+  metadata: Metadata,
   bounds: ReturnType<typeof getRequestBounds>,
   path: string,
   errors: string[],
+  repairs: string[],
 ): ShapeSuggestionItem | undefined => {
-  const shape = raw.shape;
   if (
-    shape !== 'rectangle'
-    && shape !== 'roundedRectangle'
-    && shape !== 'diamond'
-    && shape !== 'ellipse'
+    raw.shape !== 'rectangle'
+    && raw.shape !== 'roundedRectangle'
+    && raw.shape !== 'diamond'
+    && raw.shape !== 'ellipse'
   ) {
     errors.push(`${path}.shape is invalid`);
   }
@@ -290,20 +395,22 @@ const parseShape = (
     checkCoordinate(y, `${path}.y`, 'y', bounds, errors);
     checkCoordinate(y + (height ?? 0), `${path}.bottom`, 'y', bounds, errors);
   }
-  const label = readOptionalString(
-    raw.label,
-    `${path}.label`,
-    INTERPRET_PLAN_LIMITS.maxTextLength,
-    errors,
-  );
-  const children = readOptionalIds(raw.children, `${path}.children`, errors);
-  if (!id || !sourceIds.length || x === undefined || y === undefined || width === undefined || height === undefined) {
+  const label = readLabel(raw.label, `${path}.label`, repairs);
+  const children = readChildren(raw.children, `${path}.children`, repairs);
+  if (
+    !id
+    || !sourceIds.length
+    || x === undefined
+    || y === undefined
+    || width === undefined
+    || height === undefined
+  ) {
     return undefined;
   }
   return {
     id,
     kind: 'shape',
-    shape: shape as ShapeSuggestionItem['shape'],
+    shape: raw.shape as ShapeSuggestionItem['shape'],
     x,
     y,
     width,
@@ -311,7 +418,7 @@ const parseShape = (
     sourceIds,
     ...(label !== undefined ? { label } : {}),
     ...(children !== undefined ? { children } : {}),
-    ...(reason !== undefined ? { reason } : {}),
+    ...metadata,
   };
 };
 
@@ -319,26 +426,22 @@ const parseConnector = (
   raw: Record<string, unknown>,
   id: string | undefined,
   sourceIds: string[],
-  reason: string | undefined,
+  metadata: Metadata,
   bounds: ReturnType<typeof getRequestBounds>,
   path: string,
   errors: string[],
+  repairs: string[],
 ): ConnectorSuggestionItem | undefined => {
   const points = readTuplePoints(raw.points, `${path}.points`, bounds, errors);
-  const start = readNodeRef(raw.start, `${path}.start`, errors);
-  const end = readNodeRef(raw.end, `${path}.end`, errors);
+  const start = readNodeRef(raw.start, `${path}.start`, repairs);
+  const end = readNodeRef(raw.end, `${path}.end`, repairs);
   if (raw.startArrowhead !== 'arrow' && raw.startArrowhead !== null) {
     errors.push(`${path}.startArrowhead is invalid`);
   }
   if (raw.endArrowhead !== 'arrow' && raw.endArrowhead !== null) {
     errors.push(`${path}.endArrowhead is invalid`);
   }
-  const label = readOptionalString(
-    raw.label,
-    `${path}.label`,
-    INTERPRET_PLAN_LIMITS.maxTextLength,
-    errors,
-  );
+  const label = readLabel(raw.label, `${path}.label`, repairs);
   if (!id || !sourceIds.length || points.length < 2) {
     return undefined;
   }
@@ -352,7 +455,7 @@ const parseConnector = (
     endArrowhead: raw.endArrowhead as 'arrow' | null,
     sourceIds,
     ...(label !== undefined ? { label } : {}),
-    ...(reason !== undefined ? { reason } : {}),
+    ...metadata,
   };
 };
 
@@ -360,10 +463,11 @@ const parseStroke = (
   raw: Record<string, unknown>,
   id: string | undefined,
   sourceIds: string[],
-  reason: string | undefined,
+  metadata: Metadata,
   bounds: ReturnType<typeof getRequestBounds>,
   path: string,
   errors: string[],
+  repairs: string[],
 ): StrokeSuggestionItem | undefined => {
   const primitive = raw.primitive;
   if (
@@ -385,10 +489,14 @@ const parseStroke = (
   if (needsBounds && !strokeBounds) {
     errors.push(`${path}.bounds is required for ${String(primitive)}`);
   }
-  if (!id || !sourceIds.length || (
-    (needsPoints && points.length < 2)
-    || (needsBounds && !strokeBounds)
-  )) {
+  if (
+    !id
+    || !sourceIds.length
+    || (
+      (needsPoints && points.length < 2)
+      || (needsBounds && !strokeBounds)
+    )
+  ) {
     return undefined;
   }
   return {
@@ -398,7 +506,7 @@ const parseStroke = (
     sourceIds,
     ...(points.length > 0 ? { points } : {}),
     ...(strokeBounds ? { bounds: strokeBounds } : {}),
-    ...(reason !== undefined ? { reason } : {}),
+    ...metadata,
   };
 };
 
@@ -406,7 +514,7 @@ const parseText = (
   raw: Record<string, unknown>,
   id: string | undefined,
   sourceIds: string[],
-  reason: string | undefined,
+  metadata: Metadata,
   bounds: ReturnType<typeof getRequestBounds>,
   path: string,
   errors: string[],
@@ -435,15 +543,96 @@ const parseText = (
     y,
     text,
     sourceIds,
-    ...(reason !== undefined ? { reason } : {}),
+    ...metadata,
   };
+};
+
+type Metadata = {
+  confidence?: number;
+  reason?: string;
+};
+
+const readMetadata = (
+  raw: Record<string, unknown>,
+  path: string,
+  repairs: string[],
+): Metadata => {
+  const metadata: Metadata = {};
+  if (raw.reason !== undefined) {
+    if (typeof raw.reason !== 'string') {
+      repairs.push(`${path}.reason omitted because it is not a string`);
+    } else if (raw.reason.length > INTERPRET_PLAN_LIMITS.maxReasonLength) {
+      metadata.reason = raw.reason.slice(0, INTERPRET_PLAN_LIMITS.maxReasonLength);
+      repairs.push(`${path}.reason truncated to ${INTERPRET_PLAN_LIMITS.maxReasonLength} characters`);
+    } else {
+      metadata.reason = raw.reason;
+    }
+  }
+  if (raw.confidence !== undefined) {
+    if (
+      typeof raw.confidence !== 'number'
+      || !Number.isFinite(raw.confidence)
+      || raw.confidence < 0
+      || raw.confidence > 1
+    ) {
+      repairs.push(`${path}.confidence omitted because it is outside 0 to 1`);
+    } else {
+      metadata.confidence = raw.confidence;
+    }
+  }
+  return metadata;
+};
+
+const readLabel = (
+  value: unknown,
+  path: string,
+  repairs: string[],
+): string | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    repairs.push(`${path} omitted because it is not a string`);
+    return undefined;
+  }
+  if (value.length > INTERPRET_PLAN_LIMITS.maxTextLength) {
+    repairs.push(`${path} truncated to ${INTERPRET_PLAN_LIMITS.maxTextLength} characters`);
+    return value.slice(0, INTERPRET_PLAN_LIMITS.maxTextLength);
+  }
+  return value;
+};
+
+const readChildren = (
+  value: unknown,
+  path: string,
+  repairs: string[],
+): string[] | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    repairs.push(`${path} removed because it is not an array`);
+    return undefined;
+  }
+  const children: string[] = [];
+  value.forEach((entry, index) => {
+    if (
+      typeof entry !== 'string'
+      || entry.length === 0
+      || entry.length > INTERPRET_PLAN_LIMITS.maxIdLength
+    ) {
+      repairs.push(`${path}[${index}] removed because it is invalid`);
+      return;
+    }
+    children.push(entry);
+  });
+  return children;
 };
 
 const readSourceIds = (
   value: unknown,
   path: string,
   allowedSourceIds: ReadonlySet<string>,
-  sourceOwners: Map<string, string>,
   errors: string[],
 ): string[] => {
   if (!Array.isArray(value) || value.length === 0) {
@@ -452,79 +641,83 @@ const readSourceIds = (
   }
   const sourceIds: string[] = [];
   for (const [index, valueItem] of value.entries()) {
-    const sourceId = readId(valueItem, `${path}.sourceIds[${index}]`, errors);
+    const sourceId = readId(valueItem, `${path}.sourceIds[${index}]`);
     if (!sourceId) {
+      errors.push(idError(valueItem, `${path}.sourceIds[${index}]`));
       continue;
     }
     if (!allowedSourceIds.has(sourceId)) {
       errors.push(`${path} references unknown source "${sourceId}"`);
     }
-    const owner = sourceOwners.get(sourceId);
-    if (owner) {
-      errors.push(`source "${sourceId}" belongs to both "${owner}" and "${path}"`);
-    } else {
-      sourceOwners.set(sourceId, path);
+    if (sourceIds.includes(sourceId)) {
+      errors.push(`source "${sourceId}" belongs to both "${path}" and "${path}"`);
     }
     sourceIds.push(sourceId);
   }
   return sourceIds;
 };
 
+const readNodeRef = (
+  value: unknown,
+  path: string,
+  repairs: string[],
+): NodeRef | null => {
+  if (value === null) {
+    return null;
+  }
+  if (
+    !isRecord(value)
+    || Object.keys(value).length !== 1
+    || !Object.hasOwn(value, 'itemId')
+    || typeof value.itemId !== 'string'
+    || value.itemId.length === 0
+    || value.itemId.length > INTERPRET_PLAN_LIMITS.maxIdLength
+  ) {
+    repairs.push(`${path} normalized to null because it is malformed`);
+    return null;
+  }
+  return { itemId: value.itemId };
+};
+
+const cleanNodeRef = (
+  ref: NodeRef | null,
+  knownItemIds: ReadonlySet<string>,
+  shapeIds: ReadonlySet<string>,
+  path: string,
+  repairs: string[],
+): NodeRef | null => {
+  if (!ref) {
+    return null;
+  }
+  if (!('itemId' in ref) || !knownItemIds.has(ref.itemId) || !shapeIds.has(ref.itemId)) {
+    repairs.push(`${path} normalized to null because it does not reference a kept shape`);
+    return null;
+  }
+  return ref;
+};
+
 const readId = (
   value: unknown,
-  path: string,
-  errors: string[],
+  _path: string,
 ): string | undefined => {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > INTERPRET_PLAN_LIMITS.maxIdLength
+  ) {
+    return undefined;
+  }
+  return value;
+};
+
+const idError = (
+  value: unknown,
+  path: string,
+): string => {
   if (typeof value !== 'string' || value.length === 0) {
-    errors.push(`${path} must be a non-empty string`);
-    return undefined;
+    return `${path} must be a non-empty string`;
   }
-  if (value.length > INTERPRET_PLAN_LIMITS.maxIdLength) {
-    errors.push(`${path} is too long`);
-    return undefined;
-  }
-  return value;
-};
-
-const readOptionalIds = (
-  value: unknown,
-  path: string,
-  errors: string[],
-): string[] | undefined => {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!Array.isArray(value)) {
-    errors.push(`${path} must be an array`);
-    return undefined;
-  }
-  const result: string[] = [];
-  value.forEach((entry, index) => {
-    const id = readId(entry, `${path}[${index}]`, errors);
-    if (id) {
-      result.push(id);
-    }
-  });
-  return result;
-};
-
-const readOptionalString = (
-  value: unknown,
-  path: string,
-  maxLength: number,
-  errors: string[],
-): string | undefined => {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== 'string') {
-    errors.push(`${path} must be a string`);
-    return undefined;
-  }
-  if (value.length > maxLength) {
-    errors.push(`${path} is too long`);
-  }
-  return value;
+  return `${path} is too long`;
 };
 
 const readRequiredString = (
@@ -539,6 +732,7 @@ const readRequiredString = (
   }
   if (value.length > maxLength) {
     errors.push(`${path} is too long`);
+    return undefined;
   }
   return value;
 };
@@ -672,72 +866,6 @@ const readBounds = (
   return { x, y, width, height };
 };
 
-const readNodeRef = (
-  value: unknown,
-  path: string,
-  errors: string[],
-): NodeRef | null => {
-  if (value === null) {
-    return null;
-  }
-  if (!isRecord(value) || Object.keys(value).length !== 1) {
-    errors.push(`${path} must be null or an itemId reference`);
-    return null;
-  }
-  if (!Object.hasOwn(value, 'itemId')) {
-    errors.push(`${path} must reference a suggestion item, not a native element`);
-    return null;
-  }
-  const itemId = readId(value.itemId, `${path}.itemId`, errors);
-  return itemId ? { itemId } : null;
-};
-
-const validateInterpretRef = (
-  ref: NodeRef | null,
-  itemIds: ReadonlySet<string>,
-  shapeIds: ReadonlySet<string>,
-  path: string,
-  errors: string[],
-) => {
-  if (!ref) {
-    return;
-  }
-  if (!('itemId' in ref)) {
-    errors.push(`${path} must reference a suggestion item, not a native element`);
-    return;
-  }
-  if (!itemIds.has(ref.itemId)) {
-    errors.push(`${path}.itemId "${ref.itemId}" does not resolve`);
-  } else if (!shapeIds.has(ref.itemId)) {
-    errors.push(`${path}.itemId "${ref.itemId}" is not a shape`);
-  }
-};
-
-const validateOptionalConfidence = (
-  value: unknown,
-  path: string,
-  errors: string[],
-) => {
-  if (value === undefined) {
-    return;
-  }
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
-    errors.push(`${path} must be a finite number from 0 to 1`);
-  }
-};
-
-const withOptionalMetadata = (
-  item: SuggestionItem,
-  confidence: unknown,
-  reason: string | undefined,
-): SuggestionItem => ({
-  ...item,
-  ...(typeof confidence === 'number' && Number.isFinite(confidence)
-    ? { confidence }
-    : {}),
-  ...(reason !== undefined ? { reason } : {}),
-});
-
 const checkCoordinate = (
   value: number,
   path: string,
@@ -751,6 +879,12 @@ const checkCoordinate = (
     errors.push(`${path} is outside the request bounds`);
   }
 };
+
+const formatDropped = (
+  path: string,
+  id: string | undefined,
+  error: string,
+): string => `${path}${id ? ` (${id})` : ''}: ${error}`;
 
 const isRecord = (value: unknown): value is Record<string, any> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

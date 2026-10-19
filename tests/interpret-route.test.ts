@@ -164,6 +164,7 @@ describe('Interpret development route', () => {
         ? configFor(upstreamUrl)
         : configFor(upstreamUrl, ''),
       logger: { info: (message) => logs.push(message) },
+      now: () => 1000,
     });
 
     const before = await fetch(`${app.url}/api/interpret/status`);
@@ -185,10 +186,65 @@ describe('Interpret development route', () => {
       model: 'deepseek-flash',
       latencyMs: expect.any(Number),
       usage: { prompt_tokens: 12, completion_tokens: 8 },
+      dropped: 0,
     });
     expect(upstreamRequests).toBe(1);
     expect(logs.join('\n')).not.toContain(TEST_KEY);
     expect(logs.some((line) => line.includes('status=200') && line.includes('promptTokens=12'))).toBe(true);
+    expect(logs.find((line) => line.includes('status=200 code=ok') && line.includes('promptTokens=12'))).toBe(
+      'drawit interpret status=200 code=ok latencyMs=0 promptTokens=12 completionTokens=8 finish=stop',
+    );
+  });
+
+  it('salvages valid items and orders bounded drop diagnostics before finish', async () => {
+    const logs: string[] = [];
+    const partialPlan = JSON.stringify({
+      version: 1,
+      lens: 'stroke',
+      tier: 't0',
+      items: [{
+        id: 'shape-1',
+        kind: 'shape',
+        shape: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 80,
+        height: 40,
+        sourceIds: ['s1'],
+      }, {
+        id: 'bad"\n',
+        kind: 'not-a-kind',
+        sourceIds: ['s1'],
+      }],
+      unresolved: [],
+    });
+    const app = await routeServer({
+      loadConfig: () => configFor('http://127.0.0.1:1'),
+      createProvider: (): CompleteInterpretProvider => ({
+        id: 'stub',
+        capabilities: { images: false, jsonMode: true },
+        complete: async () => completion(partialPlan),
+        interpret: async () => partialPlan,
+      }),
+      logger: { info: (message) => logs.push(message) },
+    });
+
+    const response = await post(app.url);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      dropped: 1,
+      plan: { lens: 'diagram', tier: 't2', items: [{ id: 'shape-1' }] },
+    });
+
+    const line = logs.find((entry) => entry.includes('status=200 code=ok'));
+    expect(line).toBeDefined();
+    expect(line).toContain('dropped=1 detail=');
+    expect(line).toContain('repaired=2');
+    expect(line).toContain('\\"');
+    expect(line).toContain('\\n');
+    expect(line!.indexOf('dropped=')).toBeLessThan(line!.indexOf('repaired='));
+    expect(line!.indexOf('repaired=')).toBeLessThan(line!.indexOf('finish=stop'));
   });
 
   it('enforces host, method, content type, origin and fetch-site checks', async () => {
@@ -359,7 +415,7 @@ describe('Interpret development route', () => {
       res.end(JSON.stringify({
         choices: [{
           finish_reason: 'stop',
-          message: { content: JSON.stringify({ version: 1, lens: 'diagram', tier: 't2', items: [], unresolved: [{ sourceIds: ['s1'], reason: 'x'.repeat(141) }] }) },
+          message: { content: JSON.stringify({ version: 2, lens: 'diagram', tier: 't2', items: [], unresolved: [] }) },
         }],
       }));
     });

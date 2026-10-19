@@ -118,6 +118,8 @@ when supported, a marked PNG to the local dev-server route; the route sends
 that data to DeepSeek while keeping the key on the server. DeepSeek bills each
 request by input and output tokens; see its
 [pricing page](https://api-docs.deepseek.com/quick_start/pricing).
+Partial answers keep valid suggestions and report how many suggestions were skipped.
+Interpret arrows also attach to shapes that are already on the canvas.
 Changes to the key or other `.env.local` settings take effect on the next
 Interpret press; they do not restart Vite or reload the drawing.
 Set `DRAWIT_INTERPRET_CAPTURE=1` (also `true`, `yes`, or `on`) to save successful

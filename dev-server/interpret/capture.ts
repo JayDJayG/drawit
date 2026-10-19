@@ -10,6 +10,8 @@ export type InterpretCaptureOutcome = {
   status: 200 | 422;
   code: 'ok' | 'invalid-answer';
   errors?: string[];
+  dropped?: string[];
+  repairs?: string[];
 };
 
 export type InterpretCaptureSettings = {
