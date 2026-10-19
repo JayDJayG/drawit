@@ -1,4 +1,5 @@
 import type { Point } from '../../core/geometry/drawing-improvement-engine';
+import type { InterpretSceneInput } from '../../perception/interpret';
 
 export type { Point };
 
@@ -99,4 +100,14 @@ export type CanvasAdapterState = {
   mermaidCode?: string;
   mermaidUnboundArrows?: number;
   selectedStrokeCount: number;
+};
+
+export type ModelSceneSnapshot = {
+  elementIds: string[];
+  versions: Record<string, number>;
+};
+
+export type ModelInput = {
+  input: InterpretSceneInput;
+  snapshot: ModelSceneSnapshot;
 };

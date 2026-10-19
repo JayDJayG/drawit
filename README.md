@@ -63,8 +63,10 @@ strokes stay untouched. Press `Enter` to apply the accepted items in one
 undoable step, or `Esc` to dismiss the preview. While a preview is pending,
 exports wait until it is applied or dismissed.
 
-Labels are currently **typed text only**. Handwritten labels are intentionally
-left as drawing and will be addressed by a later recognition tier.
+The deterministic Diagram lens uses **typed text only**. In local development,
+the optional Interpret spike may propose vector labels from handwriting, and
+those proposals still use the same dashed preview, per-item review, apply, and
+undo path.
 
 After applying a diagram, **Export Mermaid** opens a reviewable Mermaid
 definition with Copy and Download actions. **Export SVG** downloads the live
@@ -107,6 +109,28 @@ npm run dev
 
 Open the local URL printed by Vite, usually `http://localhost:5173`. The Vite development server transpiles the TypeScript entrypoint and serves the browser module correctly. Do not open `index.html` directly with `file://`.
 
+### Interpret (local development only)
+
+Interpret is available only from a Vite development server. Copy `.env.example` to
+`.env.local`, set `DEEPSEEK_API_KEY`, and run `npm run dev`. The browser sends
+your simplified strokes, typed text, the deterministic T0 Diagram plan, and,
+when supported, a marked PNG to the local dev-server route; the route sends
+that data to DeepSeek while keeping the key on the server. DeepSeek bills each
+request by input and output tokens; see its
+[pricing page](https://api-docs.deepseek.com/quick_start/pricing).
+Changes to the key or other `.env.local` settings take effect on the next
+Interpret press; they do not restart Vite or reload the drawing.
+
+Hosted builds do not include the Interpret route, client, or button. The
+messages have these meanings: `not-configured` asks you to add the key;
+`auth` means DeepSeek rejected it; `balance` means the account has no
+balance; `rate-limited` means to try again later; `upstream-rejected` means
+the request parameters were rejected; `unavailable` means DeepSeek is
+temporarily unavailable; `timeout` means the request exceeded its limit;
+`cancelled` means you stopped it or changed the drawing; `invalid-answer`,
+`empty-answer`, and `truncated` mean the model did not return a usable plan;
+and `network` means the local server could not reach the configured upstream.
+
 ### Checks and production preview
 
 ```bash
@@ -142,11 +166,12 @@ Production builds copy the non-Liberation fonts from `node_modules` into
 `npm run notices` and published at `dist/THIRD_PARTY_NOTICES.md`.
 
 The test suite uses Vitest and includes real version-2 `.excalidraw` fixtures,
-including seeded Diagram dev and holdout fixtures. The Diagram lens and the
-future Interpret tier share a versioned suggestion-plan format. Phase 1 includes
-an offline `src/perception/interpret/` provider seam, prompt builder, strict
-response validator, and mock provider; it makes no network requests and has no
-Interpret UI yet.
+including seeded Diagram dev and holdout fixtures. The `src/perception/interpret/`
+directory holds pure helpers (request builder, prompt, validators, Set-of-Mark
+layout, and mock provider) and makes no network requests. The tests make no real
+network requests either: they use fake keys and a mocked upstream. The
+local-development-only Interpret section above adds the dev-only button and
+route, and hosted builds exclude them.
 
 ## Roadmap
 

@@ -5,36 +5,54 @@ import type {
   InterpretStroke,
 } from './types';
 
-const DEFAULT_LIMITS: Required<InterpretRequestLimits> = {
+export const DEFAULT_INTERPRET_LIMITS: Required<InterpretRequestLimits> = {
   maxStrokes: 128,
   maxPointsPerStroke: 128,
   maxTotalPoints: 4096,
+  maxTexts: 64,
   maxTextLength: 4000,
-  maxImageLength: 1_500_000,
+  maxTotalTextLength: 16_000,
+  maxIntentLength: 4000,
+  maxImageLength: 1_300_000,
 };
+
+export const INTERPRET_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
 
 export const buildInterpretRequest = (
   input: InterpretSceneInput,
   limits: InterpretRequestLimits = {},
 ): InterpretRequest => {
-  const effective = { ...DEFAULT_LIMITS, ...limits };
+  const effective = { ...DEFAULT_INTERPRET_LIMITS, ...limits };
   const strokes = input.strokes
-    .slice(0, effective.maxStrokes)
+    .slice(0, Math.max(0, effective.maxStrokes))
     .map((stroke) => ({
       id: stroke.id,
-      points: simplifyStroke(stroke, effective.maxPointsPerStroke).points,
+      points: simplifyStroke(stroke, Math.max(0, effective.maxPointsPerStroke)).points,
     }));
   const limitedStrokes = capTotalPoints(strokes, effective.maxTotalPoints);
-  const texts = input.texts.map((text) => ({
-    id: text.id,
-    text: text.text.slice(0, effective.maxTextLength),
-    x: round(text.x),
-    y: round(text.y),
-    width: round(Math.max(0, text.width)),
-    height: round(Math.max(0, text.height)),
-  }));
+  let textBudget = Math.max(0, effective.maxTotalTextLength);
+  const texts = input.texts
+    .slice(0, Math.max(0, effective.maxTexts))
+    .map((text) => {
+      const textValue = text.text.slice(
+        0,
+        Math.min(Math.max(0, effective.maxTextLength), textBudget),
+      );
+      textBudget -= textValue.length;
+      return {
+        id: text.id,
+        text: textValue,
+        x: round(text.x),
+        y: round(text.y),
+        width: round(Math.max(0, text.width)),
+        height: round(Math.max(0, text.height)),
+      };
+    });
   const image = input.image && input.image.length <= effective.maxImageLength
     ? input.image
+    : undefined;
+  const intent = input.intent
+    ? input.intent.slice(0, Math.max(0, effective.maxIntentLength))
     : undefined;
 
   return {
@@ -43,7 +61,7 @@ export const buildInterpretRequest = (
     texts,
     t0Plan: input.t0Plan ?? null,
     ...(image ? { image } : {}),
-    ...(input.intent ? { intent: input.intent.slice(0, effective.maxTextLength) } : {}),
+    ...(intent ? { intent } : {}),
   };
 };
 

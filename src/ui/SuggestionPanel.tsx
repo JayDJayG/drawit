@@ -22,6 +22,11 @@ type SuggestionPanelProps = {
   mermaidUnboundArrows: number;
   onSuggest: () => void;
   onSuggestDiagram: () => void;
+  onT2: () => void;
+  t2Available: boolean;
+  t2Busy: boolean;
+  t2Configured?: boolean;
+  t2Reason?: string;
   onApply: () => void;
   onDismiss: () => void;
   onExportMermaid: () => void;
@@ -103,6 +108,11 @@ export const SuggestionPanel = ({
   mermaidUnboundArrows,
   onSuggest,
   onSuggestDiagram,
+  onT2,
+  t2Available,
+  t2Busy,
+  t2Configured,
+  t2Reason,
   onApply,
   onDismiss,
   onExportMermaid,
@@ -177,6 +187,22 @@ export const SuggestionPanel = ({
               <span className={styles.key}>Shift+Y</span>
             </Button>
           </Tooltip>
+          {import.meta.env.DEV && (
+            <Tooltip
+              content={t2Configured === false
+                ? t2Reason ?? 'Add DEEPSEEK_API_KEY to .env.local, then press Interpret again.'
+                : 'Interpret with DeepSeek (development only). Sends your strokes, typed text and a marked PNG of them to DeepSeek.'}
+              relationship="label"
+            >
+              <Button
+                aria-label={t2Busy ? 'Cancel Interpret' : 'Interpret with DeepSeek'}
+                disabled={!t2Available || (!t2Busy && (!state.canSuggestDiagram || state.hasPendingSuggestion))}
+                onClick={onT2}
+              >
+                {t2Busy ? 'Cancel Interpret' : 'Interpret'}
+              </Button>
+            </Tooltip>
+          )}
           <Tooltip content="Apply the visible suggestion (Enter)" relationship="label">
             <Button
               aria-label="Apply the suggestion (Enter)"

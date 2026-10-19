@@ -30,6 +30,7 @@ import {
   type DiagramModel,
   type MermaidOutput,
 } from '../../lenses/diagram/mermaid';
+import type { ModelInput, ModelSceneSnapshot } from './types';
 import {
   applyElementSet,
   filterOutputElements,
@@ -65,14 +66,26 @@ import type {
   Point,
   SuggestionStatus,
 } from './types';
+import type { InterpretSceneInput } from '../../perception/interpret';
 
 type StateListener = (state: CanvasAdapterState) => void;
+
+export type ModelCancellationReason = 'escape' | 'superseded' | 'scene-changed';
+
+export type ModelPlanShowResult =
+  | { shown: true }
+  | { shown: false; reason: 'stale' | 'empty' };
+
+export type ModelPlanOptions = {
+  label?: string;
+};
 
 type PendingSuggestion = {
   plan: SuggestionPlan;
   rejectedItemIds: Set<string>;
   sourceSnapshots: Map<string, string>;
   operation?: SuggestionOperation;
+  previewLabel?: string;
 };
 
 type ExistingBinding = {
@@ -98,6 +111,7 @@ export class CanvasAdapter {
   private appState?: AppState;
   private files: BinaryFiles = {};
   private pending?: PendingSuggestion;
+  private modelCancellation?: (reason: ModelCancellationReason) => void;
   private lastSceneSignature?: string;
   private state: CanvasAdapterState = {
     status: 'Draw a stroke to get started.',
@@ -143,12 +157,16 @@ export class CanvasAdapter {
     if (this.pending && (sceneChanged || openedOutputUi)) {
       this.dismissPreview(openedOutputUi ? 'Preview dismissed before saving or exporting.' : undefined);
     }
+    if (sceneChanged) {
+      this.modelCancellation?.('scene-changed');
+    }
 
     this.lastSceneSignature = nextSignature;
     this.publishDerivedState();
   }
 
   suggest() {
+    this.modelCancellation?.('superseded');
     if (this.pending) {
       return;
     }
@@ -182,6 +200,7 @@ export class CanvasAdapter {
   }
 
   suggestDiagram() {
+    this.modelCancellation?.('superseded');
     if (this.pending) {
       return;
     }
@@ -307,6 +326,11 @@ export class CanvasAdapter {
       }
     }
 
+    if (!editingText && event.key === 'Escape') {
+      this.modelCancellation?.('escape');
+      return false;
+    }
+
     const hasControlModifier = event.ctrlKey || event.metaKey;
     if (
       !editingText
@@ -384,16 +408,80 @@ export class CanvasAdapter {
     downloadBlob('drawit.svg', new Blob([source], { type: 'image/svg+xml' }));
   }
 
+  setModelCancellationHandler(
+    handler: ((reason: ModelCancellationReason) => void) | undefined,
+  ) {
+    this.modelCancellation = handler;
+  }
+
+  getModelInput(): ModelInput {
+    const currentElements = this.getCurrentElements();
+    const diagramInput = this.getDiagramInput(currentElements);
+    const input: InterpretSceneInput = {
+      lens: 'diagram',
+      strokes: diagramInput.strokes,
+      texts: diagramInput.texts,
+      t0Plan: suggestDiagram(diagramInput),
+    };
+    return {
+      input,
+      snapshot: this.captureModelSnapshot(currentElements),
+    };
+  }
+
+  isModelSnapshotCurrent(snapshot: ModelSceneSnapshot): boolean {
+    const current = this.captureModelSnapshot(this.getCurrentElements());
+    if (current.elementIds.length !== snapshot.elementIds.length) {
+      return false;
+    }
+    const expectedIds = new Set(snapshot.elementIds);
+    if (current.elementIds.some((id) => !expectedIds.has(id))) {
+      return false;
+    }
+    return snapshot.elementIds.every((id) => {
+      return current.versions[id] === snapshot.versions[id];
+    });
+  }
+
+  showModelPlan(
+    plan: SuggestionPlan,
+    snapshot: ModelSceneSnapshot,
+    options: ModelPlanOptions = {},
+  ): ModelPlanShowResult {
+    const currentElements = this.getCurrentElements();
+    if (!this.isModelSnapshotCurrent(snapshot)) {
+      return { shown: false, reason: 'stale' };
+    }
+    if (plan.items.length === 0) {
+      return { shown: false, reason: 'empty' };
+    }
+    this.showPlan(plan, currentElements, undefined, options.label);
+    this.setStatus(
+      this.formatDiagramStatus(plan, new Set(), options.label),
+      'ready',
+    );
+    return { shown: true };
+  }
+
+  setModelStatus(
+    status: string,
+    statusKind: SuggestionStatus = 'idle',
+  ) {
+    this.setStatus(status, statusKind);
+  }
+
   private showPlan(
     plan: SuggestionPlan,
     currentElements: readonly OrderedExcalidrawElement[],
     operation?: SuggestionOperation,
+    previewLabel?: string,
   ) {
     this.pending = {
       plan,
       rejectedItemIds: new Set(),
       sourceSnapshots: this.captureSourceSnapshots(plan, currentElements),
       operation,
+      previewLabel,
     };
 
     const converted = this.convertPlan(plan, true, currentElements);
@@ -594,6 +682,17 @@ export class CanvasAdapter {
         ...style,
       } as unknown as ExcalidrawElementSkeleton;
     }
+    if (item.primitive === 'rectangle' && item.bounds) {
+      return {
+        type: 'rectangle',
+        id: item.id,
+        x: item.bounds.x,
+        y: item.bounds.y,
+        width: item.bounds.width,
+        height: item.bounds.height,
+        ...style,
+      } as unknown as ExcalidrawElementSkeleton;
+    }
     const points = item.points ?? [{ x: 0, y: 0 }, { x: 1, y: 1 }];
     const first = points[0] ?? { x: 0, y: 0 };
     return {
@@ -762,7 +861,7 @@ export class CanvasAdapter {
     });
     this.setStatus(
       this.pending.plan.lens === 'diagram'
-        ? this.formatDiagramStatus(this.pending.plan, rejected)
+        ? this.formatDiagramStatus(this.pending.plan, rejected, this.pending.previewLabel)
         : `Suggestion ready — ${rejected.size} item${rejected.size === 1 ? '' : 's'} rejected. Enter applies the rest. Esc dismisses.`,
       'ready',
     );
@@ -771,9 +870,10 @@ export class CanvasAdapter {
   private formatDiagramStatus(
     plan: SuggestionPlan,
     rejected: ReadonlySet<string>,
+    label = 'Diagram',
   ): string {
     const acceptedCount = plan.items.filter((item) => !rejected.has(item.id)).length;
-    return `Diagram: ${summarizeSuggestionPlan(plan, rejected)}. Click an item to reject or restore it. Enter applies ${acceptedCount} of ${plan.items.length}. Esc dismisses.`;
+    return `${label}: ${summarizeSuggestionPlan(plan, rejected)}. Click an item to reject or restore it. Enter applies ${acceptedCount} of ${plan.items.length}. Esc dismisses.`;
   }
 
   private sourcesStillMatch(
@@ -853,6 +953,21 @@ export class CanvasAdapter {
         })),
     };
     return input;
+  }
+
+  private captureModelSnapshot(
+    elements: readonly OrderedExcalidrawElement[],
+  ): ModelSceneSnapshot {
+    const live = elements.filter((element) => {
+      return !element.isDeleted
+        && !isPreviewElement(element as unknown as CanvasElement);
+    });
+    return {
+      elementIds: live.map((element) => element.id),
+      versions: Object.fromEntries(
+        live.map((element) => [element.id, element.version]),
+      ),
+    };
   }
 
   private extractDiagramModel(elements: readonly ExcalidrawElement[]): DiagramModel {

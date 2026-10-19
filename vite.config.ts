@@ -14,6 +14,7 @@ import {
   isExcludedFontPath,
   lookupGeneratedFont,
 } from './scripts/generated-assets';
+import { interpretDevServerPlugin } from './dev-server/interpret/plugin';
 
 const productionContentSecurityPolicy = [
   "default-src 'self'",
@@ -253,6 +254,7 @@ const subsetChunkGuardPlugin = (): Plugin => ({
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
+    interpretDevServerPlugin(),
     generatedAssetsPlugin(),
     subsetChunkGuardPlugin(),
     {

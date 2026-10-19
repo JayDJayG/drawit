@@ -10,6 +10,6 @@
     "lib": ["ES2022", "DOM"],
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "tests", "vite.config.ts", "scripts"],
+  "include": ["src", "tests", "vite.config.ts", "scripts", "dev-server"],
   "exclude": ["node_modules"]
 }

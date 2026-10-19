@@ -3,6 +3,7 @@ dist/
 coverage/
 .env
 .env.*
+!.env.example
 *.log
 public/fonts/
 public/THIRD_PARTY_NOTICES.md

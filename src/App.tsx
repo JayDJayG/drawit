@@ -9,6 +9,10 @@ import { lazy, Suspense, useCallback, useRef, useState } from 'react';
 import type { CanvasAdapter } from './canvas/excalidraw/CanvasAdapter';
 import type { CanvasAdapterState } from './canvas/excalidraw/types';
 import { SuggestionPanel } from './ui/SuggestionPanel';
+import type {
+  InterpretClientController,
+  InterpretUiState,
+} from './dev/interpret-client';
 
 const LazyExcalidrawEditor = lazy(async () => {
   const module = await import('./canvas/excalidraw/ExcalidrawEditor');
@@ -77,11 +81,26 @@ const initialState: CanvasAdapterState = {
 export const App = () => {
   const styles = useStyles();
   const adapterRef = useRef<CanvasAdapter | undefined>(undefined);
+  const t2ControllerRef = useRef<InterpretClientController | undefined>(undefined);
   const [adapterState, setAdapterState] = useState(initialState);
+  const [t2State, setT2State] = useState<InterpretUiState>({
+    available: false,
+    busy: false,
+  });
   const [mermaid, setMermaid] = useState({ code: '', unboundArrows: 0 });
 
   const handleReady = useCallback((adapter: CanvasAdapter) => {
     adapterRef.current = adapter;
+    if (import.meta.env.DEV) {
+      void import('./dev/interpret-client').then(({ createInterpretController }) => {
+        if (adapterRef.current !== adapter) {
+          return;
+        }
+        const controller = createInterpretController(adapter, setT2State);
+        t2ControllerRef.current = controller;
+        setT2State(controller.getState());
+      });
+    }
   }, []);
   const handleStateChange = useCallback((state: CanvasAdapterState) => {
     setAdapterState(state);
@@ -102,6 +121,14 @@ export const App = () => {
     adapterRef.current?.suggestDiagram();
     adapterRef.current?.focusCanvas();
   }, []);
+  const handleT2 = useCallback(() => {
+    if (t2State.busy) {
+      t2ControllerRef.current?.cancel();
+    } else {
+      void t2ControllerRef.current?.start();
+    }
+    adapterRef.current?.focusCanvas();
+  }, [t2State.busy]);
   const handleExportMermaid = useCallback(() => {
     const output = adapterRef.current?.getMermaid();
     if (output) {
@@ -132,6 +159,11 @@ export const App = () => {
             state={adapterState}
             onSuggest={handleSuggest}
             onSuggestDiagram={handleSuggestDiagram}
+            onT2={handleT2}
+            t2Available={t2State.available}
+            t2Busy={t2State.busy}
+            t2Configured={t2State.configured}
+            t2Reason={t2State.reason}
             onApply={handleApply}
             onDismiss={handleDismiss}
             onExportMermaid={handleExportMermaid}
