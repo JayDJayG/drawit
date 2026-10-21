@@ -195,6 +195,7 @@ After the MVP:
 - **Phase 4: Interface lens.** Turn a wireframe sketch into an editable Fluent UI preview, with HTML and SVG export for Figma and Penpot.
 - **Phase 5: Art lens experiment.** Drawing guides, doodle hints, and an opt-in vector "ghost" guide, built from the artist's own strokes, that never replaces them.
 - **Phase 6: Learner and motor-assistance features.** A short explanation with each suggestion, stronger smoothing, and easier shape snapping.
+- **Phase 7: Lettering lens.** Guides, neater letters, and smoother strokes for hand lettering and handwriting practice, always in the writer's own hand.
 
 Recognition escalates from free geometry, to small in-browser models, to a vision LLM that runs only when the artist asks.
 

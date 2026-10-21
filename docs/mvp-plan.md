@@ -1,6 +1,6 @@
 # Drawit MVP plan
 
-_Status: agreed on 2026-10-17, then re-scoped the same day after an assumption check. Updated that evening to design the Interpret (vision-LLM) seam into Phase 1. §3 records the decisions and §9 defines the two-week MVP._
+_Status: agreed on 2026-10-17, then re-scoped the same day after an assumption check. Updated that evening to design the Interpret (vision-LLM) seam into Phase 1, and on 2026-10-19 to add a Lettering lens as the last phase. §3 records the decisions and §9 defines the two-week MVP._
 
 ## 1. Goal
 
@@ -8,10 +8,10 @@ Drawit extends what people can draw without taking authorship away from them. Th
 
 | Persona | From | To |
 | --- | --- | --- |
-| Artist | rough sketch | better art from their own strokes: guides, refinement, an optional vector "ghost" guide |
+| Artist | rough sketch or hand lettering | better art from their own strokes: guides, refinement, an optional vector "ghost" guide, and neater lettering in their own hand |
 | Engineer | whiteboard-style sketch | a technical diagram: flowchart or architecture diagram, exported as Mermaid, SVG or draw.io; CAD-style constraints later |
 | UI/UX designer | wireframe sketch | an editable UI: Fluent UI web-components HTML, plus SVG to import into Figma or Penpot |
-| Learner | unsure, wobbly strokes | cleaner strokes, each with a short explanation of what changed |
+| Learner | unsure, wobbly strokes or handwriting | cleaner strokes, each with a short explanation of what changed; more even handwriting, written over guides |
 | Person who needs motor assistance | shaky or imprecise strokes | stronger smoothing, and shapes that snap into place with fewer precise movements |
 
 The two-week MVP serves engineers only. Its job is to validate demand with real users (decision 6). The other personas follow after user testing.
@@ -28,7 +28,7 @@ The two-week MVP serves engineers only. Its job is to validate demand with real 
 | # | Topic | Decision |
 | --- | --- | --- |
 | 1 | Recognition | The perception ladder (§6): geometry first, then small local models, then a vision LLM on demand. The JEPA research track is parked (§7). |
-| 2 | Lens order | Diagram first. Interface is the headline demo. Art is a time-boxed experiment. |
+| 2 | Lens order | Diagram first. Interface is the headline demo. Art is a time-boxed experiment. Lettering comes last (decision 14). |
 | 3 | Vision-LLM provider | Phase 1 builds the Interpret (T2) seam: a suggestion plan shared with T0, a provider interface and a mock (§6). The first real adapter speaks the OpenAI-compatible Chat Completions API and targets DeepSeek (`deepseek-flash` accepts images). It is tried in a local-only spike, keeps its key on a server, and stays out of the hosted MVP and the first user tests. The bake-off (Phase 3) can change the default provider. T2 returns actionable suggestions about the user's own strokes, never generated images. |
 | 4 | Canvas foundation | Excalidraw (`@excalidraw/excalidraw`, MIT), pinned to an exact version and isolated behind an adapter (§5). |
 | 5 | Plan location | This file, linked from the README roadmap. |
@@ -40,8 +40,9 @@ The two-week MVP serves engineers only. Its job is to validate demand with real 
 | 11 | Two-week scope | Phase 0, a geometry-only Diagram lens with Mermaid export, and online hosting (§9). Everything else waits until after user testing. |
 | 12 | Willingness to pay | Measured with a pricing page or waitlist during user testing. |
 | 13 | Hosting | GitHub Pages, deployed by a GitHub Actions workflow from the public `drawit` source repo. Pages has no custom headers or serverless functions, so the CSP is a `<meta>` tag and the paid AI proxy (Phase 3) will need another host. Publishing before decision 9 means all rights are reserved by default. |
+| 14 | Lettering | A Lettering lens (§8) comes last, as Phase 7, for artists doing hand lettering and learners practising handwriting. It offers guides, neater letters and smoother strokes, all made from the writer's own strokes by geometry alone, and never swaps in a font. Latin alphabet first. Reading handwriting stays with Interpret (T2). |
 
-## 4. Architecture: one core, three lenses
+## 4. Architecture: one core, four lenses
 
 Excalidraw provides the canvas: freehand ink, selection, undo, rendering and export. Everything Drawit adds is plain TypeScript, and only one adapter module imports Excalidraw.
 
@@ -51,7 +52,7 @@ Excalidraw canvas: freedraw ink, selection, undo, JSON/PNG/SVG export
   -> geometry: cleanup, primitives, groups               (already started)
   -> structure: scene graph (nodes, edges, containment, alignment, text regions)
   -> perception ladder T0 -> T1 -> T2                    (escalates on demand)
-  -> lens: Art | Diagram | Interface
+  -> lens: Art | Diagram | Interface | Lettering
   -> review: preview on the canvas, accept/reject per element, undo
   -> export: Excalidraw JSON/PNG/SVG, Mermaid/draw.io, HTML, Figma/Penpot
 ```
@@ -62,7 +63,7 @@ Excalidraw canvas: freedraw ink, selection, undo, JSON/PNG/SVG export
 | `src/core/structure` | Scene graph |
 | `src/core/suggestions` | The suggestion plan that every tier and lens emits, and that the review step previews and applies |
 | `src/perception` | T0 recognizers, T1 Web Worker, T2 client |
-| `src/lenses` | Diagram, Interface and Art lenses |
+| `src/lenses` | Diagram, Interface, Art and Lettering lenses |
 | `src/canvas/excalidraw` | The only module that imports Excalidraw |
 | `src/ui` | Drawit panels, built with Fluent UI React v9 (`@fluentui/react-components`) |
 
@@ -98,7 +99,7 @@ Yes, but only for meaning, and only when the user asks. Precision comes from geo
 
 | Tier | What | Cost / speed | Good for | Not for |
 | --- | --- | --- | --- | --- |
-| **T0** Geometry + $Q | Deterministic fitting (we already have line, curve, circle, rectangle) plus the $Q point-cloud recognizer with user-defined templates | Free, sub-millisecond, offline | Shapes, arrows, diamonds, connectors, a user's personal symbols | Meaning, handwriting |
+| **T0** Geometry + $Q | Deterministic fitting (we already have line, curve, circle, rectangle) plus the $Q point-cloud recognizer with user-defined templates | Free, sub-millisecond, offline | Shapes, arrows, diamonds, connectors, a user's personal symbols, the geometry of handwriting (baselines, letter heights, slant) | Meaning, reading handwriting |
 | **T1** Small local models | transformers.js in a Web Worker: QuickDraw doodle classifier, DINOv2-small embeddings for few-shot k-NN, optional SigLIP zero-shot labels | Free after a one-time 6–95 MB download; millisecond-scale (to be measured) | "What object is this?", UI component type, personal-symbol lookup | Handwriting, layout intent, code |
 | **T2** Vision LLM on demand | Simplified strokes, typed text and the T0 suggestion plan in, plus a Set-of-Mark image for models that accept images; a schema-validated suggestion plan out that references stroke IDs only | Seconds, a few cents per request | Labels and handwriting, element roles, layout intent, composition feedback, generating Mermaid or HTML | Real-time feedback, generating images |
 
@@ -172,6 +173,17 @@ No model called "JEV" could be found; it is probably a mix-up with V-JEPA.
 - **Opt-in vector ghost layer:** faint vector guides and corrected stroke paths, built from the artist's own strokes by T0 geometry or a T2 suggestion plan. They appear as a locked, translucent overlay that the artist can trace over or accept stroke by stroke. It never generates images and never replaces strokes automatically.
 - **Later:** SketchAgent-style stroke-by-stroke suggestions.
 
+### Lettering lens (Phase 7, after the learner features)
+
+- **Audience:** artists doing hand lettering and learners practising handwriting (decision 14).
+- **Find the writing (T0):** group strokes into letters, words and lines by size and spacing, then fit each line's baseline, x-height, cap height, descender line and slant. This needs geometry only; nothing has to read the words.
+- **Guides:** faint, locked vector lines for the baseline, x-height, cap height, descender line and slant, fitted to what the writer wrote or set by hand. They sit on the Art lens's vector ghost layer, so the writer can write over them like a practice sheet.
+- **Neater letters:** dashed suggestions, one letter at a time, that move letters onto the baseline and even out their height, slant and spacing. They only move, resize and re-slant the writer's own strokes, so every letter keeps its shape.
+- **Smoother strokes:** less wobble, with corners and letter shapes kept, reusing the geometry engine and the stronger smoothing from Phase 6.
+- **Never:** swap in a font, generate an image, or apply a change automatically. Turning handwriting into typed text stays with Interpret.
+- **Latin alphabet first.** Other writing systems need different guide lines and come later.
+- **Later:** letter-specific fixes that need reading, through Interpret (for example, closing the loop of an "a"); calligraphy (thick and thin strokes, nib-angle guides); practice sheets with model letters.
+
 ## 9. Phases and exit criteria
 
 Targets marked † are initial guesses, to be recalibrated after the recognition bake-off (Phase 3).
@@ -234,6 +246,12 @@ Phase 2 follows the demo directly. The Interpret spike can run alongside it beca
 - Stronger smoothing for shaky strokes, and shapes that snap into place with fewer precise movements.
 - *Exit:* tested with learners and people who need motor assistance.
 
+**Phase 7: Lettering lens**
+- Find lines of handwriting and fit their guides with geometry only (T0), Latin alphabet first.
+- Show the guides on the vector ghost layer, and offer neater letters and smoother strokes through the shared preview, per-letter review and undo.
+- Test with artists who do hand lettering and learners practising handwriting.
+- *Exit:* on testers' handwriting, accepted suggestions at least halve† baseline drift and the spread of letter height, slant and spacing, and testers say the result still looks like their own handwriting.
+
 ## 10. Licensing
 
 Excalidraw is MIT-licensed ("Copyright (c) 2020 Excalidraw"). That allows commercial use, modification, bundling and selling, so it fits the open-core model (decision 8) whichever license Drawit chooses. These findings were checked on 2026-10-17 against version 0.18.1. They are not legal advice.
@@ -271,6 +289,7 @@ Excalidraw is MIT-licensed ("Copyright (c) 2020 Excalidraw"). That allows commer
 ## 12. Metrics
 
 - **Recognition:** precision and recall per element type; character error rate for labels.
+- **Lettering:** baseline drift and the spread of letter height, slant and spacing, before and after accepted suggestions.
 - **Latency targets:** T0 under 16 ms; T1 under 100 ms p95†; T2 under 5 s p95†.
 - **Cost:** cents per interpreted sketch; share of interactions that need T2.
 - **Human-first:** suggestion acceptance rate; edits made after accepting; self-reported sense of ownership.
@@ -291,6 +310,7 @@ Excalidraw is MIT-licensed ("Copyright (c) 2020 Excalidraw"). That allows commer
 | Bundle size | Lazy-load the editor and keep models in a Web Worker |
 | Crowded sketch-to-UI market | Differentiate on fidelity to the sketch, traceability and human control |
 | Authorship concerns (Art lens) | The ghost layer is opt-in and vector-only (never generated images), and is never applied automatically |
+| Neater lettering erases the writer's style | Suggestions only move, resize, re-slant and smooth the writer's own strokes, never swap in a font, and are accepted letter by letter |
 
 ## 14. Sources
 
