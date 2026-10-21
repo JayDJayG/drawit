@@ -28,12 +28,16 @@ The goal is not to produce a finished image from a prompt. The goal is to help a
 The current browser prototype is an Excalidraw-based drawing studio. It focuses on
 improving freehand sketches while preserving the original mark. It includes:
 
+- a full-window canvas under a slim app bar, with touch-sized controls on phones
+  and tablets;
 - Excalidraw's mouse, pen, and touch drawing tools, with freedraw active by default;
 - native Excalidraw selection for choosing several strokes;
-- non-destructive, dashed suggestions that are explicitly applied or dismissed;
+- non-destructive, dashed suggestions, reviewed in a bar beside the preview and
+  explicitly applied or dismissed;
 - a geometry-only Diagram lens for turning sketched flowcharts into native shapes,
   bound arrows, and typed labels;
-- one-step undo and redo for an applied improvement;
+- one-step undo and redo for an applied improvement, with an **Undo** button in
+  the confirmation message;
 - Mermaid and SVG export from the live native diagram; and
 - self-hosted Excalidraw fonts and a production CSP with no third-party requests.
 
@@ -45,8 +49,8 @@ This is an early-stage experiment. The current improvement engine and Diagram le
 2. The artist selects one or more freedraw elements, or leaves everything unselected to target the last freedraw stroke.
 3. The artist chooses **Suggest** or presses `Y`. A selected group is checked as a possible four-stroke box.
 4. The deterministic geometry engine simplifies noisy points, preserves meaningful corners, straightens near-linear strokes, and fits rough circles.
-5. The suggestion appears as a locked, dashed overlay. It is not part of undo history or saved/exported output.
-6. The artist presses `Enter` to apply or `Esc` to dismiss. Applying replaces the sources in one undoable change; `Ctrl+Z` restores the original strokes and redo reapplies the change.
+5. The suggestion appears as a locked, dashed overlay, and the original strokes under it fade so the change stands out. A review bar beside the preview says what will change. The preview is not part of undo history or saved/exported output, and the original strokes stay untouched until the artist applies it.
+6. The artist chooses **Apply** or **Dismiss** in the review bar, or presses `Enter` or `Esc`. Applying replaces the sources in one undoable change. The confirmation message offers **Undo**; `Ctrl+Z` also restores the original strokes, and redo reapplies the change.
 
 ### Diagram lens
 
@@ -56,22 +60,24 @@ recognizes rectangles, rounded rectangles, diamonds, ellipses, connectors, and
 typed labels. Connector endpoints are bound to recognized or existing native
 shapes.
 
-The diagram is shown as a single dashed preview before it changes the scene.
-Click any preview shape, arrow, or bound label to reject it; click it again to
-restore it. Rejected items remain visible at low opacity and their source
-strokes stay untouched. Press `Enter` to apply the accepted items in one
-undoable step, or `Esc` to dismiss the preview. While a preview is pending,
-exports wait until it is applied or dismissed.
+The diagram is shown as a single dashed preview before it changes the scene,
+and the review bar counts how many items are included. Click or tap any preview
+shape, arrow, or bound label to exclude it; click it again to include it.
+Excluded items stay visible at low opacity, and strokes used only by excluded
+items return to full strength. Choose **Apply** (`Enter`) to apply the included
+items in one undoable step, or **Dismiss** (`Esc`) to discard the preview.
+While a preview is pending, exports wait until it is applied or dismissed, and
+the **Export** menu says so.
 
 The deterministic Diagram lens uses **typed text only**. In local development,
 the optional Interpret spike may propose vector labels from handwriting, and
 those proposals still use the same dashed preview, per-item review, apply, and
 undo path.
 
-After applying a diagram, **Export Mermaid** opens a reviewable Mermaid
-definition with Copy and Download actions. **Export SVG** downloads the live
-native Excalidraw output. Unbound arrows are omitted from Mermaid because their
-endpoints cannot be represented as diagram edges.
+After applying a diagram, **Export › Mermaid code…** opens a reviewable Mermaid
+definition with Copy and Download actions. **Export › SVG image** downloads the
+live native Excalidraw output. Unbound arrows are omitted from Mermaid because
+their endpoints cannot be represented as diagram edges.
 
 Production builds keep Excalidraw's font-subsetting worker in its own
 same-origin chunks (the build fails if that isolation breaks), so SVG export
@@ -88,8 +94,10 @@ back to main-thread subsetting if its optimized worker cannot load.
 | Dismiss a pending suggestion | `Esc` |
 
 `Enter` and `Esc` are only handled by Drawit while a suggestion is pending and the
-artist is not editing text or typing in an input. Excalidraw's native shortcuts
-remain available.
+artist is not editing text or typing in an input. `Esc` also dismisses the
+suggestion while the review bar has focus. **More › Shortcuts and tips** lists
+these shortcuts in the app, and on touch screens the review bar's buttons do
+the same job. Excalidraw's native shortcuts remain available.
 
 Future versions will add flowchart-aware connector and layout suggestions, shape completion, proportion guides, perspective support, and optional model-based assistance.
 

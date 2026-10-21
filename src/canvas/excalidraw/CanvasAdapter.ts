@@ -37,12 +37,16 @@ import {
   freedrawElementToStroke,
   getTargetFreedrawElements,
   isPreviewElement,
+  isSourceVeil,
   markAsPreview,
   removePreviewElements,
   sceneSignature,
   setPreviewReview,
+  updateSourceVeil,
+  withSourceVeils,
 } from './scene-logic';
 import {
+  describePendingReview,
   formatSuggestionStatus,
   getPendingContextMenuAction,
   getPendingKeyAction,
@@ -63,8 +67,10 @@ import type {
   CanvasElement,
   DrawitStroke,
   NativeElementDraft,
+  PendingReview,
   Point,
   SuggestionStatus,
+  ViewportRect,
 } from './types';
 import type { InterpretSceneInput } from '../../perception/interpret';
 
@@ -115,13 +121,17 @@ export class CanvasAdapter {
   private pending?: PendingSuggestion;
   private modelCancellation?: (reason: ModelCancellationReason) => void;
   private lastSceneSignature?: string;
+  private appliedSignature?: string;
   private state: CanvasAdapterState = {
     status: 'Draw a stroke to get started.',
     statusKind: 'idle',
+    statusId: 0,
     hasPendingSuggestion: false,
     canSuggest: false,
     canSuggestDiagram: false,
     canExport: false,
+    canUndo: false,
+    excalidrawUiOpen: false,
     selectedStrokeCount: 0,
   };
 
@@ -275,13 +285,43 @@ export class CanvasAdapter {
       elements: appliedElements as unknown as readonly ExcalidrawElement[],
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
+    this.appliedSignature = sceneSignature(
+      this.api.getSceneElementsIncludingDeleted() as unknown as CanvasElement[],
+    );
 
     this.setStatus(
       pending.plan.lens === 'diagram'
-        ? 'Applied diagram — Ctrl+Z to undo.'
-        : 'Applied — Ctrl+Z to undo.',
+        ? 'Diagram applied.'
+        : 'Suggestion applied.',
       'applied',
     );
+    this.publishDerivedState();
+  }
+
+  /** Undoes the last applied suggestion through Excalidraw's own history. */
+  undo() {
+    if (!this.state.canUndo) {
+      return;
+    }
+    this.appliedSignature = undefined;
+    const undoButton = this.shellElement?.querySelector<HTMLButtonElement>(
+      '[data-testid="button-undo"]',
+    );
+    if (undoButton && !undoButton.disabled) {
+      undoButton.click();
+    } else {
+      const container = this.shellElement?.querySelector<HTMLElement>('.excalidraw');
+      const mac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      container?.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'z',
+        code: 'KeyZ',
+        ctrlKey: !mac,
+        metaKey: mac,
+        bubbles: true,
+        cancelable: true,
+      }));
+    }
+    this.setStatus('Undone — your drawing is back as it was.', 'dismissed');
     this.publishDerivedState();
   }
 
@@ -494,10 +534,15 @@ export class CanvasAdapter {
       previewLabel,
       previewSkipped,
     };
+    this.appliedSignature = undefined;
 
     const converted = this.convertPlan(plan, true, currentElements);
     let previewElements = [
-      ...removePreviewElements(currentElements as unknown as CanvasElement[]),
+      ...withSourceVeils(
+        removePreviewElements(currentElements as unknown as CanvasElement[]),
+        plan.items,
+        this.getVeilColor(),
+      ),
       ...converted.elements,
     ] as CanvasElement[];
     previewElements = this.applyExistingBindings(previewElements, converted.existingBindings);
@@ -858,6 +903,12 @@ export class CanvasAdapter {
     }
     const currentElements = this.getCurrentElements();
     const nextElements = currentElements.map((element) => {
+      if (isSourceVeil(element as unknown as CanvasElement)) {
+        return updateSourceVeil(
+          element as unknown as CanvasElement,
+          rejected,
+        ) as unknown as OrderedExcalidrawElement;
+      }
       const planItemId = getCustomString(element, 'planItemId');
       return planItemId === itemId
         ? (setPreviewReview(
@@ -1046,14 +1097,21 @@ export class CanvasAdapter {
     });
     const canExport = filterOutputElements(currentElements).length > 0;
 
-    this.state = {
+    const nextState: CanvasAdapterState = {
       ...this.state,
       hasPendingSuggestion: this.pending !== undefined,
+      review: this.getPendingReview(),
       canSuggest: hasFreedraw,
       canSuggestDiagram: hasDiagramInput,
       canExport,
+      canUndo: this.isAppliedSceneCurrent(),
+      excalidrawUiOpen: isExcalidrawUiOpen(this.appState),
       selectedStrokeCount,
     };
+    if (sameAdapterState(this.state, nextState)) {
+      return;
+    }
+    this.state = nextState;
     this.notify();
   }
 
@@ -1062,9 +1120,76 @@ export class CanvasAdapter {
       ...this.state,
       status,
       statusKind,
+      statusId: this.state.statusId + 1,
       hasPendingSuggestion: this.pending !== undefined,
+      review: this.getPendingReview(),
     };
     this.notify();
+  }
+
+  private getPendingReview(): PendingReview | undefined {
+    const pending = this.pending;
+    if (!pending) {
+      return undefined;
+    }
+    const description = describePendingReview({
+      plan: pending.plan,
+      rejectedItemIds: pending.rejectedItemIds,
+      operation: pending.operation,
+      label: pending.previewLabel,
+      skipped: pending.previewSkipped,
+    });
+    const anchor = this.getPreviewAnchor(pending);
+    return anchor ? { ...description, anchor } : description;
+  }
+
+  /** Bounds of the preview and its sources, in CSS pixels from the canvas's top-left corner. */
+  private getPreviewAnchor(pending: PendingSuggestion): ViewportRect | undefined {
+    const appState = this.appState;
+    if (!appState) {
+      return undefined;
+    }
+    const sourceIds = new Set(getPlanSourceIds(pending.plan));
+    const elements = this.api.getSceneElementsIncludingDeleted() as OrderedExcalidrawElement[];
+    let bounds: ViewportRect | undefined;
+    for (const element of elements) {
+      const candidate = element as unknown as CanvasElement;
+      const isPreviewItem = isPreviewElement(candidate) && !isSourceVeil(candidate);
+      if (element.isDeleted || (!isPreviewItem && !sourceIds.has(element.id))) {
+        continue;
+      }
+      const elementBounds = getElementBounds(element, getAbsoluteElementPoints(element));
+      bounds = bounds ? unionBounds(bounds, elementBounds) : elementBounds;
+    }
+    if (!bounds) {
+      return undefined;
+    }
+    const zoom = appState.zoom.value;
+    return {
+      x: (bounds.x + appState.scrollX) * zoom,
+      y: (bounds.y + appState.scrollY) * zoom,
+      width: bounds.width * zoom,
+      height: bounds.height * zoom,
+    };
+  }
+
+  private isAppliedSceneCurrent(): boolean {
+    if (!this.appliedSignature) {
+      return false;
+    }
+    const current = sceneSignature(
+      this.api.getSceneElementsIncludingDeleted() as unknown as CanvasElement[],
+    );
+    if (current !== this.appliedSignature) {
+      this.appliedSignature = undefined;
+      return false;
+    }
+    return true;
+  }
+
+  private getVeilColor(): string {
+    const color = this.appState?.viewBackgroundColor;
+    return color && color !== 'transparent' ? color : '#ffffff';
   }
 
   private notify() {
@@ -1078,6 +1203,56 @@ export class CanvasAdapter {
     return this.api.getSceneElementsIncludingDeleted() as OrderedExcalidrawElement[];
   }
 }
+
+/** Transient Excalidraw menus, popups and dialogs; the persistent sidebar doesn't count. */
+const isExcalidrawUiOpen = (appState: AppState | undefined): boolean => {
+  return Boolean(
+    appState?.openDialog
+    || appState?.openMenu
+    || appState?.contextMenu
+    || appState?.openPopup,
+  );
+};
+
+const sameRect = (first?: ViewportRect, second?: ViewportRect): boolean => {
+  if (!first || !second) {
+    return first === second;
+  }
+  return Math.round(first.x) === Math.round(second.x)
+    && Math.round(first.y) === Math.round(second.y)
+    && Math.round(first.width) === Math.round(second.width)
+    && Math.round(first.height) === Math.round(second.height);
+};
+
+const sameReview = (first?: PendingReview, second?: PendingReview): boolean => {
+  if (!first || !second) {
+    return first === second;
+  }
+  return first.title === second.title
+    && first.detail === second.detail
+    && first.includedCount === second.includedCount
+    && first.totalCount === second.totalCount
+    && sameRect(first.anchor, second.anchor);
+};
+
+const sameAdapterState = (
+  first: CanvasAdapterState,
+  second: CanvasAdapterState,
+): boolean => {
+  const keys = new Set([
+    ...Object.keys(first),
+    ...Object.keys(second),
+  ]) as Set<keyof CanvasAdapterState>;
+  for (const key of keys) {
+    const same = key === 'review'
+      ? sameReview(first.review, second.review)
+      : first[key] === second[key];
+    if (!same) {
+      return false;
+    }
+  }
+  return true;
+};
 
 const isTextEntryTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {

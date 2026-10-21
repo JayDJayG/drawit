@@ -8,13 +8,15 @@ import {
   rectangleDraft,
   strokesToDrafts,
 } from './scene-logic';
-import type {
-  SuggestionPlan,
-  StrokeSuggestionItem,
+import {
+  summarizeSuggestionPlan,
+  type SuggestionPlan,
+  type StrokeSuggestionItem,
 } from '../../core/suggestions';
 import type {
   DrawitStroke,
   NativeElementDraft,
+  PendingReview,
 } from './types';
 
 export type SuggestionOperation =
@@ -242,6 +244,57 @@ export type PendingKeyAction =
   | 'dismiss'
   | 'keep'
   | 'none';
+
+const STROKE_REVIEW_TITLES: Record<SuggestionOperation['mode'], string> = {
+  smoothed: 'Smoother stroke',
+  straightened: 'Straighter line',
+  circled: 'Rounder circle',
+  rectangle: 'Neater rectangle',
+};
+
+/** Describes a pending preview for the review bar, without its on-screen anchor. */
+export const describePendingReview = ({
+  plan,
+  rejectedItemIds,
+  operation,
+  label,
+  skipped = 0,
+}: {
+  plan: SuggestionPlan;
+  rejectedItemIds: ReadonlySet<string>;
+  operation?: SuggestionOperation;
+  label?: string;
+  skipped?: number;
+}): Omit<PendingReview, 'anchor'> => {
+  const totalCount = plan.items.length;
+  const includedCount = plan.items.filter((item) => !rejectedItemIds.has(item.id)).length;
+
+  if (operation) {
+    const target = operation.kind === 'group'
+      ? 'Your selected strokes'
+      : operation.target === 'last'
+        ? 'Your last stroke'
+        : 'Your selected stroke';
+    const removed = operation.removedPoints > 0
+      ? ` · ${operation.removedPoints} noisy ${operation.removedPoints === 1 ? 'point' : 'points'} removed`
+      : '';
+    return {
+      title: STROKE_REVIEW_TITLES[operation.mode],
+      detail: `${target}${removed}`,
+      includedCount,
+      totalCount,
+    };
+  }
+
+  const summary = summarizeSuggestionPlan(plan, rejectedItemIds);
+  const skippedText = skipped > 0 ? ` · ${skipped} skipped` : '';
+  return {
+    title: label ?? 'Diagram',
+    detail: `${summary.charAt(0).toUpperCase()}${summary.slice(1)}${skippedText}`,
+    includedCount,
+    totalCount,
+  };
+};
 
 export type PendingContextMenuAction = 'dismiss' | 'keep';
 

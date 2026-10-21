@@ -1,64 +1,66 @@
 import {
   FluentProvider,
-  Text,
   makeStyles,
   tokens,
   webLightTheme,
 } from '@fluentui/react-components';
-import { lazy, Suspense, useCallback, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import type { CanvasAdapter } from './canvas/excalidraw/CanvasAdapter';
 import type { CanvasAdapterState } from './canvas/excalidraw/types';
-import { SuggestionPanel } from './ui/SuggestionPanel';
 import type {
   InterpretClientController,
   InterpretUiState,
 } from './dev/interpret-client';
+import { AppBar } from './ui/AppBar';
+import { MermaidDialog } from './ui/MermaidDialog';
+import { ReviewBar } from './ui/ReviewBar';
+import { ShortcutsDialog } from './ui/ShortcutsDialog';
+import { StatusToast } from './ui/StatusToast';
+import { visuallyHidden } from './ui/shared-styles';
+import { useCoarsePointer, useMediaQuery } from './ui/use-media-query';
 
 const LazyExcalidrawEditor = lazy(async () => {
   const module = await import('./canvas/excalidraw/ExcalidrawEditor');
   return { default: module.ExcalidrawEditor };
 });
 
+// Inline on purpose: FluentProvider copies its className onto every portal
+// mount node, so a height class would turn each portal into a full-page layer.
+const PROVIDER_STYLE: CSSProperties = { height: '100%' };
+
 const useStyles = makeStyles({
   app: {
-    minHeight: '100vh',
-    backgroundColor: tokens.colorNeutralBackground3,
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
+    overflow: 'hidden',
+    backgroundColor: tokens.colorNeutralBackground1,
     color: tokens.colorNeutralForeground1,
   },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: tokens.spacingHorizontalM,
-    minHeight: '56px',
-    padding: `0 ${tokens.spacingHorizontalXXL}`,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  brand: {
-    fontWeight: tokens.fontWeightSemibold,
-  },
-  main: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalM,
-    width: 'min(100% - 32px, 1440px)',
-    margin: '0 auto',
-    padding: `${tokens.spacingVerticalXXL} 0`,
-  },
-  intro: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalXS,
-  },
-  editor: {
-    height: 'min(72vh, 760px)',
-    minHeight: '520px',
+  workspace: {
+    position: 'relative',
+    flex: '1 1 auto',
+    minHeight: '0',
     overflow: 'hidden',
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-    boxShadow: tokens.shadow8,
+  },
+  layer: {
+    position: 'absolute',
+    top: '0',
+    right: '0',
+    bottom: '0',
+    left: '0',
+  },
+  overlay: {
+    // Above Excalidraw's toolbars (z-index 4), below its popovers and dialogs.
+    zIndex: 5,
+    pointerEvents: 'none',
   },
   loading: {
     display: 'grid',
@@ -66,120 +68,192 @@ const useStyles = makeStyles({
     placeItems: 'center',
     color: tokens.colorNeutralForeground2,
   },
+  hidden: visuallyHidden,
 });
 
 const initialState: CanvasAdapterState = {
   status: 'Draw a stroke to get started.',
   statusKind: 'idle',
+  statusId: 0,
   hasPendingSuggestion: false,
   canSuggest: false,
   canSuggestDiagram: false,
   canExport: false,
+  canUndo: false,
+  excalidrawUiOpen: false,
   selectedStrokeCount: 0,
 };
 
 export const App = () => {
   const styles = useStyles();
   const adapterRef = useRef<CanvasAdapter | undefined>(undefined);
-  const t2ControllerRef = useRef<InterpretClientController | undefined>(undefined);
+  const interpretRef = useRef<InterpretClientController | undefined>(undefined);
+  const [ready, setReady] = useState(false);
   const [adapterState, setAdapterState] = useState(initialState);
-  const [t2State, setT2State] = useState<InterpretUiState>({
+  const [interpretState, setInterpretState] = useState<InterpretUiState>({
     available: false,
     busy: false,
   });
+  const [hiddenStatusId, setHiddenStatusId] = useState(-1);
   const [mermaid, setMermaid] = useState({ code: '', unboundArrows: 0 });
+  const [mermaidOpen, setMermaidOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const coarse = useCoarsePointer();
+  const compact = useMediaQuery('(max-width: 479px)');
 
   const handleReady = useCallback((adapter: CanvasAdapter) => {
     adapterRef.current = adapter;
+    setReady(true);
     if (import.meta.env.DEV) {
       void import('./dev/interpret-client').then(({ createInterpretController }) => {
         if (adapterRef.current !== adapter) {
           return;
         }
-        const controller = createInterpretController(adapter, setT2State);
-        t2ControllerRef.current = controller;
-        setT2State(controller.getState());
+        const controller = createInterpretController(adapter, setInterpretState);
+        interpretRef.current = controller;
+        setInterpretState(controller.getState());
       });
     }
   }, []);
   const handleStateChange = useCallback((state: CanvasAdapterState) => {
     setAdapterState(state);
   }, []);
+  const focusCanvas = useCallback(() => {
+    adapterRef.current?.focusCanvas();
+  }, []);
   const handleSuggest = useCallback(() => {
     adapterRef.current?.suggest();
-    adapterRef.current?.focusCanvas();
-  }, []);
-  const handleApply = useCallback(() => {
-    adapterRef.current?.apply();
-    adapterRef.current?.focusCanvas();
-  }, []);
-  const handleDismiss = useCallback(() => {
-    adapterRef.current?.dismissPreview();
-    adapterRef.current?.focusCanvas();
-  }, []);
+    focusCanvas();
+  }, [focusCanvas]);
   const handleSuggestDiagram = useCallback(() => {
     adapterRef.current?.suggestDiagram();
-    adapterRef.current?.focusCanvas();
-  }, []);
-  const handleT2 = useCallback(() => {
-    if (t2State.busy) {
-      t2ControllerRef.current?.cancel();
-    } else {
-      void t2ControllerRef.current?.start();
+    focusCanvas();
+  }, [focusCanvas]);
+  const handleApply = useCallback(() => {
+    adapterRef.current?.apply();
+    focusCanvas();
+  }, [focusCanvas]);
+  const handleDismiss = useCallback(() => {
+    adapterRef.current?.dismissPreview();
+    focusCanvas();
+  }, [focusCanvas]);
+  const handleUndo = useCallback(() => {
+    adapterRef.current?.undo();
+    focusCanvas();
+  }, [focusCanvas]);
+  const handleInterpret = useCallback(() => {
+    const controller = interpretRef.current;
+    if (!controller) {
+      return;
     }
-    adapterRef.current?.focusCanvas();
-  }, [t2State.busy]);
+    if (controller.getState().busy) {
+      controller.cancel();
+    } else {
+      void controller.start();
+    }
+    focusCanvas();
+  }, [focusCanvas]);
+  const handleCancelInterpret = useCallback(() => {
+    interpretRef.current?.cancel();
+    focusCanvas();
+  }, [focusCanvas]);
   const handleExportMermaid = useCallback(() => {
     const output = adapterRef.current?.getMermaid();
     if (output) {
       setMermaid(output);
+      setMermaidOpen(true);
     }
   }, []);
   const handleExportSvg = useCallback(() => {
     void adapterRef.current?.exportSvg();
   }, []);
+  const handleShowShortcuts = useCallback(() => {
+    setShortcutsOpen(true);
+  }, []);
+
+  const { statusId } = adapterState;
+  const interpretBusy = interpretState.busy;
+  const handleCloseToast = useCallback(() => {
+    setHiddenStatusId(statusId);
+    focusCanvas();
+  }, [focusCanvas, statusId]);
+  // Drawing again puts the last message away, unless Interpret is still working.
+  const handleCanvasPointerDown = useCallback(() => {
+    if (!interpretBusy) {
+      setHiddenStatusId(statusId);
+    }
+  }, [interpretBusy, statusId]);
+
+  const review = adapterState.hasPendingSuggestion && !adapterState.excalidrawUiOpen
+    ? adapterState.review
+    : undefined;
+  const showToast = !adapterState.hasPendingSuggestion
+    && !adapterState.excalidrawUiOpen
+    && hiddenStatusId !== statusId;
 
   return (
-    <FluentProvider theme={webLightTheme}>
+    <FluentProvider style={PROVIDER_STYLE} theme={webLightTheme}>
       <div className={styles.app}>
-        <header className={styles.header}>
-          <Text className={styles.brand} size={500}>Drawit</Text>
-          <Text size={300}>Human-first drawing studio</Text>
-        </header>
-        <main className={styles.main}>
-          <section className={styles.intro} aria-labelledby="page-title">
-            <Text id="page-title" size={800} weight="semibold">
-              Extend what your hands can draw.
-            </Text>
-            <Text size={400}>
-              Draw with Excalidraw, then ask for a geometry-only suggestion without giving up authorship.
-            </Text>
-          </section>
-          <SuggestionPanel
-            state={adapterState}
-            onSuggest={handleSuggest}
-            onSuggestDiagram={handleSuggestDiagram}
-            onT2={handleT2}
-            t2Available={t2State.available}
-            t2Busy={t2State.busy}
-            t2Configured={t2State.configured}
-            t2Reason={t2State.reason}
-            onApply={handleApply}
-            onDismiss={handleDismiss}
-            onExportMermaid={handleExportMermaid}
-            onExportSvg={handleExportSvg}
-            mermaidCode={mermaid.code}
-            mermaidUnboundArrows={mermaid.unboundArrows}
-          />
-          <section className={styles.editor} aria-label="Excalidraw drawing workspace">
+        <AppBar
+          ready={ready}
+          reviewing={adapterState.hasPendingSuggestion}
+          canExport={adapterState.canExport}
+          compact={compact}
+          coarse={coarse}
+          interpret={import.meta.env.DEV ? interpretState : undefined}
+          onSuggest={handleSuggest}
+          onSuggestDiagram={handleSuggestDiagram}
+          onInterpret={handleInterpret}
+          onExportMermaid={handleExportMermaid}
+          onExportSvg={handleExportSvg}
+          onShowShortcuts={handleShowShortcuts}
+        />
+        <main className={styles.workspace}>
+          <div className={styles.hidden} role="status" aria-live="polite" aria-atomic="true">
+            <span key={statusId}>{adapterState.status}</span>
+          </div>
+          <div className={`${styles.layer} ${styles.overlay}`}>
+            {review && (
+              <ReviewBar
+                review={review}
+                coarse={coarse}
+                onApply={handleApply}
+                onDismiss={handleDismiss}
+              />
+            )}
+            {showToast && (
+              <StatusToast
+                status={adapterState.status}
+                kind={adapterState.statusKind}
+                busy={interpretBusy}
+                canUndo={adapterState.canUndo}
+                coarse={coarse}
+                onUndo={handleUndo}
+                onCancel={handleCancelInterpret}
+                onClose={handleCloseToast}
+              />
+            )}
+          </div>
+          <div className={styles.layer} onPointerDownCapture={handleCanvasPointerDown}>
             <Suspense fallback={<div className={styles.loading}>Loading the drawing canvas…</div>}>
               <LazyExcalidrawEditor
                 onReady={handleReady}
                 onStateChange={handleStateChange}
               />
             </Suspense>
-          </section>
+          </div>
         </main>
+        <MermaidDialog
+          open={mermaidOpen}
+          code={mermaid.code}
+          unboundArrows={mermaid.unboundArrows}
+          onOpenChange={setMermaidOpen}
+        />
+        <ShortcutsDialog
+          open={shortcutsOpen}
+          coarse={coarse}
+          onOpenChange={setShortcutsOpen}
+        />
       </div>
     </FluentProvider>
   );

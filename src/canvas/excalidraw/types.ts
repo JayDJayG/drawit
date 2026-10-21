@@ -89,15 +89,40 @@ export type SuggestionStatus =
   | 'no-freehand-selection'
   | 'not-a-box'
   | 'applied'
-  | 'dismissed';
+  | 'dismissed'
+  | 'error';
+
+/** A rectangle in CSS pixels, relative to the top-left corner of the canvas. */
+export type ViewportRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type PendingReview = {
+  title: string;
+  detail: string;
+  includedCount: number;
+  totalCount: number;
+  /** Where the preview and its source strokes are drawn; may lie partly off screen. */
+  anchor?: ViewportRect;
+};
 
 export type CanvasAdapterState = {
   status: string;
   statusKind: SuggestionStatus;
+  /** Increases whenever the status is set, even when the text repeats. */
+  statusId: number;
+  review?: PendingReview;
   hasPendingSuggestion: boolean;
   canSuggest: boolean;
   canSuggestDiagram: boolean;
   canExport: boolean;
+  /** True while the last applied suggestion is still the latest change to the drawing. */
+  canUndo: boolean;
+  /** True while one of Excalidraw's own menus, popups or dialogs is open. */
+  excalidrawUiOpen: boolean;
   mermaidCode?: string;
   mermaidUnboundArrows?: number;
   selectedStrokeCount: number;

@@ -5,18 +5,24 @@ import {
   freedrawElementToStroke,
   getAbsoluteFreedrawPoints,
   getTargetFreedrawElements,
+  isSourceVeil,
   markAsPreview,
   removePreviewElements,
   strokesToDrafts,
+  updateSourceVeil,
+  withSourceVeils,
 } from '../src/canvas/excalidraw/scene-logic';
 import {
+  describePendingReview,
   formatSuggestionStatus,
   getPendingContextMenuAction,
   getPendingKeyAction,
   matchesExcalidrawKey,
   StrokeSuggestionEngine,
+  type SuggestionOperation,
 } from '../src/canvas/excalidraw/adapter-logic';
 import type { CanvasElement, DrawitStroke } from '../src/canvas/excalidraw/types';
+import type { SuggestionPlan } from '../src/core/suggestions';
 
 const element = (
   id: string,
@@ -291,5 +297,160 @@ describe('Excalidraw adapter scene logic', () => {
   it('dismisses a pending preview before opening a context menu', () => {
     expect(getPendingContextMenuAction(true)).toBe('dismiss');
     expect(getPendingContextMenuAction(false)).toBe('keep');
+  });
+
+  it('fades freedraw sources with locked veils in the canvas colour', () => {
+    const stroke = element('stroke');
+    const box = element('box', { type: 'rectangle' });
+    const other = element('other');
+    const veiled = withSourceVeils(
+      [stroke, box, other],
+      [{ id: 'item-1', sourceIds: ['stroke', 'box'] }],
+      '#fafafa',
+    );
+
+    expect(veiled.map(({ id }) => id)).toEqual(['stroke', 'stroke-drawit-veil', 'box', 'other']);
+    expect(veiled[0]).toBe(stroke);
+    expect(veiled[1]).toMatchObject({
+      type: 'freedraw',
+      points: stroke.points,
+      strokeColor: '#fafafa',
+      opacity: 72,
+      locked: true,
+      customData: {
+        drawit: 'preview',
+        role: 'veil',
+        sourceIds: ['stroke'],
+        planItemIds: ['item-1'],
+      },
+    });
+    expect(isSourceVeil(veiled[1]!)).toBe(true);
+    expect(removePreviewElements(veiled)).toEqual([stroke, box, other]);
+    expect(filterOutputElements(veiled).map(({ id }) => id)).toEqual(['stroke', 'box', 'other']);
+  });
+
+  it('clears a veil only when every suggestion item for its stroke is excluded', () => {
+    const stroke = element('stroke');
+    const items = [
+      { id: 'item-1', sourceIds: ['stroke'] },
+      { id: 'item-2', sourceIds: ['stroke'] },
+    ];
+    const veil = withSourceVeils([stroke], items, '#ffffff')[1]!;
+
+    expect(updateSourceVeil(veil, new Set(['item-1'])).opacity).toBe(72);
+    expect(updateSourceVeil(veil, new Set(['item-1', 'item-2'])).opacity).toBe(0);
+    expect(withSourceVeils([stroke], items, '#ffffff', new Set(['item-1', 'item-2']))[1]?.opacity)
+      .toBe(0);
+    expect(updateSourceVeil(stroke, new Set(['item-1']))).toBe(stroke);
+  });
+});
+
+describe('review bar description', () => {
+  const strokePlan: SuggestionPlan = {
+    version: 1,
+    lens: 'stroke',
+    tier: 't0',
+    items: [{
+      id: 'stroke-1',
+      kind: 'stroke',
+      primitive: 'line',
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+      sourceIds: ['a'],
+    }],
+    unresolved: [],
+  };
+  const strokeOperation = (
+    mode: 'smoothed' | 'straightened' | 'circled',
+    target: 'selection' | 'last',
+    removedPoints: number,
+  ): SuggestionOperation => ({
+    kind: 'stroke',
+    sourceIds: ['a'],
+    drafts: [],
+    mode,
+    removedPoints,
+    target,
+    plan: strokePlan,
+  });
+
+  it('names the stroke change and the strokes it replaces', () => {
+    const review = (operation: SuggestionOperation) => describePendingReview({
+      plan: strokePlan,
+      rejectedItemIds: new Set(),
+      operation,
+    });
+
+    expect(review(strokeOperation('straightened', 'last', 0))).toEqual({
+      title: 'Straighter line',
+      detail: 'Your last stroke',
+      includedCount: 1,
+      totalCount: 1,
+    });
+    expect(review(strokeOperation('smoothed', 'selection', 1)).detail)
+      .toBe('Your selected stroke · 1 noisy point removed');
+    expect(review(strokeOperation('circled', 'last', 5))).toMatchObject({
+      title: 'Rounder circle',
+      detail: 'Your last stroke · 5 noisy points removed',
+    });
+    expect(review({
+      kind: 'group',
+      sourceIds: ['a', 'b', 'c', 'd'],
+      drafts: [],
+      mode: 'rectangle',
+      removedPoints: 0,
+      target: 'selection',
+      plan: strokePlan,
+    })).toMatchObject({
+      title: 'Neater rectangle',
+      detail: 'Your selected strokes',
+    });
+  });
+
+  it('summarises the included diagram items and what was skipped', () => {
+    const plan: SuggestionPlan = {
+      version: 1,
+      lens: 'diagram',
+      tier: 't0',
+      items: [
+        { id: 'box-1', kind: 'shape', shape: 'rectangle', x: 0, y: 0, width: 80, height: 40, label: 'Start', sourceIds: ['s1'] },
+        { id: 'box-2', kind: 'shape', shape: 'rectangle', x: 200, y: 0, width: 80, height: 40, sourceIds: ['s2'] },
+        {
+          id: 'arrow-1',
+          kind: 'connector',
+          points: [[80, 20], [200, 20]],
+          start: { itemId: 'box-1' },
+          end: { itemId: 'box-2' },
+          startArrowhead: null,
+          endArrowhead: 'arrow',
+          sourceIds: ['s3'],
+        },
+      ],
+      unresolved: [{ sourceIds: ['s4'], reason: 'Not a shape.' }],
+    };
+
+    expect(describePendingReview({ plan, rejectedItemIds: new Set() })).toEqual({
+      title: 'Diagram',
+      detail: '2 shapes, 1 arrow, 1 label, 1 stroke left as drawn',
+      includedCount: 3,
+      totalCount: 3,
+    });
+    expect(describePendingReview({
+      plan,
+      rejectedItemIds: new Set(['box-2']),
+      label: 'Interpret',
+      skipped: 2,
+    })).toEqual({
+      title: 'Interpret',
+      detail: '1 shape, 1 arrow, 1 label, 1 stroke left as drawn · 2 skipped',
+      includedCount: 2,
+      totalCount: 3,
+    });
+    expect(describePendingReview({
+      plan,
+      rejectedItemIds: new Set(['box-1', 'box-2', 'arrow-1']),
+    })).toMatchObject({
+      detail: 'No changes, 1 stroke left as drawn',
+      includedCount: 0,
+    });
   });
 });

@@ -201,13 +201,20 @@ export const createInterpretController = (
     const id = ++nextRequestId;
     const controller = new AbortController();
     const scene = adapter.getModelInput();
+    if (scene.input.strokes.length === 0 && scene.input.texts.length === 0) {
+      adapter.setModelStatus(
+        'Nothing to interpret yet — draw shapes, arrows or labels first.',
+        'nothing-to-improve',
+      );
+      return;
+    }
     if (
       scene.input.strokes.length > DEFAULT_INTERPRET_LIMITS.maxStrokes
       || scene.input.texts.length > DEFAULT_INTERPRET_LIMITS.maxTexts
     ) {
       adapter.setModelStatus(
         'Interpret works on up to 128 strokes and 64 text boxes. Select part of the drawing and press Interpret again.',
-        'idle',
+        'error',
       );
       return;
     }
@@ -233,7 +240,7 @@ export const createInterpretController = (
     } catch (error) {
       adapter.setModelStatus(
         'The drawing could not be prepared for Interpret. Try selecting part of it and press Interpret again.',
-        'idle',
+        'error',
       );
       return;
     }
@@ -243,7 +250,7 @@ export const createInterpretController = (
       snapshot: scene.snapshot,
     };
     publish({ busy: true });
-    adapter.setModelStatus('Interpreting… Esc cancels', 'idle');
+    adapter.setModelStatus('Interpreting your drawing…', 'idle');
 
     try {
       const status = await transport.getStatus(controller.signal);
@@ -261,7 +268,7 @@ export const createInterpretController = (
         publish({ busy: false });
         adapter.setModelStatus(
           status.reason ?? 'Add DEEPSEEK_API_KEY to .env.local, then press Interpret again.',
-          'idle',
+          'error',
         );
         return;
       }
@@ -283,7 +290,7 @@ export const createInterpretController = (
       if (!isCurrent(id)) {
         return;
       }
-      adapter.setModelStatus(`Interpreting… Esc cancels${imageMessage}`, 'idle');
+      adapter.setModelStatus(`Interpreting your drawing…${imageMessage}`, 'idle');
       const result = await transport.interpret(request, controller.signal);
       if (!isCurrent(id)) {
         return;
@@ -296,7 +303,7 @@ export const createInterpretController = (
       if (!validation.ok) {
         adapter.setModelStatus(
           formatValidationMessage(validation.errors),
-          'idle',
+          'error',
         );
         return;
       }
@@ -331,7 +338,7 @@ export const createInterpretController = (
         error instanceof DevInterpretError
           ? formatTransportError(error)
           : 'The local Interpret request failed. Try again.',
-        'idle',
+        'error',
       );
     } finally {
       if (isCurrent(id)) {

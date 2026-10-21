@@ -143,6 +143,22 @@ const answer = () => ({
 });
 
 describe('development Interpret controller', () => {
+  it('explains an empty drawing without calling the model', async () => {
+    const adapter = new FakeAdapter({
+      input: { lens: 'diagram', strokes: [], texts: [], t0Plan: null },
+      snapshot: { elementIds: [], versions: {} },
+    });
+    const { transport, requests } = deferredTransport();
+    const controller = createInterpretController(adapterAsCanvas(adapter), { transport });
+
+    await controller.start();
+
+    expect(requests).toHaveLength(0);
+    expect(controller.getState().busy).toBe(false);
+    expect(adapter.statuses.at(-1))
+      .toBe('Nothing to interpret yet — draw shapes, arrows or labels first.');
+  });
+
   it('aborts the current request for scene cancellation and ignores its late answer', async () => {
     const adapter = new FakeAdapter();
     const { transport, signals, resolvers } = deferredTransport();

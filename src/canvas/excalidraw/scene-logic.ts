@@ -60,6 +60,88 @@ export const setPreviewReview = <TElement extends CanvasElement>(
   };
 };
 
+const SOURCE_VEIL_OPACITY = 72;
+
+export const isSourceVeil = (element: CanvasElement): boolean => {
+  return isPreviewElement(element) && element.customData?.role === 'veil';
+};
+
+const getVeilItemIds = (element: CanvasElement): string[] => {
+  const itemIds = element.customData?.planItemIds;
+  return Array.isArray(itemIds)
+    ? itemIds.filter((itemId): itemId is string => typeof itemId === 'string')
+    : [];
+};
+
+const sourceVeilOpacity = (
+  itemIds: readonly string[],
+  rejectedItemIds: ReadonlySet<string>,
+): number => {
+  return itemIds.some((itemId) => !rejectedItemIds.has(itemId))
+    ? SOURCE_VEIL_OPACITY
+    : 0;
+};
+
+/**
+ * Inserts a preview-only copy of each freedraw stroke behind a suggestion,
+ * directly above its source and painted in the canvas colour, so the
+ * originals fade while the suggestion is reviewed. The user's own elements
+ * are never modified.
+ */
+export const withSourceVeils = <TElement extends CanvasElement>(
+  elements: readonly TElement[],
+  items: ReadonlyArray<{ id: string; sourceIds: readonly string[] }>,
+  backgroundColor: string,
+  rejectedItemIds: ReadonlySet<string> = new Set(),
+): TElement[] => {
+  const itemIdsBySource = new Map<string, string[]>();
+  for (const item of items) {
+    for (const sourceId of item.sourceIds) {
+      itemIdsBySource.set(sourceId, [...(itemIdsBySource.get(sourceId) ?? []), item.id]);
+    }
+  }
+
+  return elements.flatMap((element) => {
+    const itemIds = itemIdsBySource.get(element.id);
+    if (!itemIds || !isFreedrawElement(element) || isPreviewElement(element)) {
+      return [element];
+    }
+    const veil = {
+      ...element,
+      id: `${element.id}-drawit-veil`,
+      index: null,
+      strokeColor: backgroundColor,
+      backgroundColor: 'transparent',
+      opacity: sourceVeilOpacity(itemIds, rejectedItemIds),
+      locked: true,
+      groupIds: [],
+      frameId: null,
+      boundElements: null,
+      link: null,
+      customData: {
+        drawit: 'preview',
+        role: 'veil',
+        sourceIds: [element.id],
+        planItemIds: itemIds,
+      },
+    };
+    return [element, veil];
+  });
+};
+
+export const updateSourceVeil = <TElement extends CanvasElement>(
+  element: TElement,
+  rejectedItemIds: ReadonlySet<string>,
+): TElement => {
+  if (!isSourceVeil(element)) {
+    return element;
+  }
+  return {
+    ...element,
+    opacity: sourceVeilOpacity(getVeilItemIds(element), rejectedItemIds),
+  };
+};
+
 export const filterOutputElements = <TElement extends CanvasElement>(
   elements: readonly TElement[],
 ): TElement[] => {
